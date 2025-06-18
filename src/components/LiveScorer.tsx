@@ -9,6 +9,7 @@ import { InningsSetupModal } from './InningsSetupModal';
 import { CricketEngine } from '../services/cricketEngine';
 import { storageService } from '../services/storage';
 import { cloudStorageService } from '../services/cloudStorageService';
+import { UserStatsService } from '../services/userStatsService';
 import { ScorecardModal } from './ScorecardModal';
 import { motion, AnimatePresence } from 'framer-motion';
 import { authService } from '../services/authService';
@@ -46,6 +47,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   const [overCompleteMessage, setOverCompleteMessage] = useState<string | null>(null);
   const [showScorecard, setShowScorecard] = useState(false);
   const [showMotmSelector, setShowMotmSelector] = useState(false);
+  const [showEndInningsModal, setShowEndInningsModal] = useState(false);
 
   // Game state
   const [pendingStrikeRotation, setPendingStrikeRotation] = useState(false);
@@ -370,30 +372,125 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   };
 
   const handleMatchComplete = async () => {
+    console.log('🏆 MATCH COMPLETION STARTING...');
+    
     try {
-      const completedMatch = {
-        ...match,
-        isCompleted: true,
-        endTime: new Date().toISOString(),
-        winner: CricketEngine.getMatchResult(match).split(' won ')[0] || 'Unknown',
-        manOfTheMatch: CricketEngine.calculateManOfTheMatch(match)
-      };
+      const updatedMatch = { ...match };
+      updatedMatch.isCompleted = true;
+      updatedMatch.completedAt = new Date().toISOString();
       
-      await storageService.saveMatchState(completedMatch);
+      // Set match result using CricketEngine
+      const result = CricketEngine.getMatchResult(updatedMatch);
+      updatedMatch.result = result;
       
-      // Save to cloud if online
-      if (isOnline) {
-        try {
-          await cloudStorageService.saveMatch(completedMatch);
-        } catch (error) {
-          console.warn('Failed to save completed match to cloud:', error);
-        }
+      // Calculate Man of the Match using CricketEngine 
+      const motm = CricketEngine.calculateManOfTheMatch(updatedMatch);
+      if (motm) {
+        updatedMatch.manOfTheMatch = motm;
+        console.log(`🏆 Man of the Match: ${motm.name}`);
       }
+
+      console.log(`🏆 Match Result: ${result}`);
+
+      // Save match state with comprehensive error handling
+      let saveSuccessful = false;
+      let errorMessage = '';
+
+      try {
+        // Stage 1: Local storage (always works)
+        await storageService.saveMatchState(updatedMatch);
+        console.log('✅ Match saved to local storage');
+        saveSuccessful = true;
+        
+        // Stage 2: Player statistics update
+        try {
+          if (isOnline) {
+            await UserStatsService.updateMatchStats(updatedMatch);
+            console.log('✅ Player statistics updated');
+          } else {
+            console.log('📱 Offline: Player stats will update when online');
+          }
+        } catch (statsError) {
+          console.error('⚠️ Statistics update failed, but match is saved:', statsError);
+          errorMessage += 'Statistics update failed. ';
+        }
+
+        // Stage 3: Cloud storage (if online)
+        try {
+          if (isOnline) {
+            await cloudStorageService.saveMatch(updatedMatch);
+            console.log('☁️ Match saved to cloud storage');
+            setLastCloudSave(new Date());
+          } else {
+            console.log('📱 Offline: Match will sync to cloud when online');
+            errorMessage += 'Cloud sync pending (offline). ';
+          }
+        } catch (cloudError) {
+          console.error('⚠️ Cloud save failed, but match is saved locally:', cloudError);
+          errorMessage += 'Cloud sync failed. ';
+        }
+
+        // Stage 4: Cleanup local storage
+        try {
+          await storageService.clearActiveMatch();
+          console.log('🗑️ Active match cleared from storage');
+        } catch (cleanupError) {
+          console.error('⚠️ Cleanup failed:', cleanupError);
+          errorMessage += 'Cleanup incomplete. ';
+        }
+
+      } catch (localError) {
+        console.error('❌ CRITICAL: Local save failed:', localError);
+        alert('❌ CRITICAL ERROR: Failed to save match!\n\nPlease try again or contact support.');
+        return;
+      }
+
+      // Update the match state
+      setMatch(updatedMatch);
       
-      await storageService.clearIncompleteMatches();
-      onMatchComplete(completedMatch);
+      // Show completion message
+      if (errorMessage) {
+        alert(`✅ Match completed successfully!\n\n⚠️ Minor issues: ${errorMessage}\n\nYour match data is safe.`);
+      } else {
+        alert('🏆 Match completed successfully!\n\nAll data saved securely.');
+      }
+
+      // Show victory animation
+      setShowVictoryAnimation(true);
+      setTimeout(() => {
+        setShowVictoryAnimation(false);
+        onMatchComplete(updatedMatch);
+      }, 3000);
+
     } catch (error) {
-      console.error('Failed to complete match:', error);
+      console.error('❌ Match completion failed:', error);
+      alert('❌ Failed to complete match. Please try again.\n\nError: ' + (error as Error).message);
+    }
+  };
+
+  const handleEndInnings = () => {
+    console.log('🏏 End Innings requested by user');
+    
+    // Show confirmation modal
+    setShowEndInningsModal(true);
+    setShowMenu(false); // Close dropdown menu
+  };
+
+  const confirmEndInnings = () => {
+    console.log('🏏 MANUALLY ENDING INNINGS - User confirmed');
+    
+    const updatedMatch = { ...match };
+    
+    if (!updatedMatch.isSecondInnings) {
+      // End first innings, start second
+      console.log('🔄 Manually ending first innings, starting second');
+      setShowEndInningsModal(false);
+      handleInningsTransition();
+    } else {
+      // End second innings, complete match
+      console.log('🏆 Manually ending second innings, completing match');
+      setShowEndInningsModal(false);
+      handleMatchComplete();
     }
   };
 
@@ -798,13 +895,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
             </button>
           )}
           
-          <button
-            onClick={() => setShowScorecard(true)}
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
-            title="View Full Scorecard"
-          >
-            <span className="text-gray-600 font-semibold text-sm">Scorecard</span>
-          </button>
+
           <button
             onClick={() => setShowMenu(!showMenu)}
             className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
@@ -813,6 +904,32 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           </button>
         </div>
       </div>
+
+                    {/* Dropdown Menu */}
+       {showMenu && (
+         <div className="absolute top-16 right-2 bg-white rounded-lg shadow-lg border border-gray-200 z-50 min-w-48 animate-slideDown">
+           <div className="py-2">
+             <button
+               onClick={() => {
+                 setShowScorecard(true);
+                 setShowMenu(false);
+               }}
+               className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center space-x-3"
+             >
+               <BarChart3 className="w-4 h-4 text-gray-600" />
+               <span className="text-gray-700">View Scorecard</span>
+             </button>
+           </div>
+         </div>
+       )}
+
+      {/* Click outside to close menu */}
+      {showMenu && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setShowMenu(false)}
+        />
+      )}
 
       {/* Bowler Selection Success Notification */}
       {bowlerSelectionSuccess && (
@@ -855,6 +972,34 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       {/* Content */}
       <div className="p-2 space-y-2">
         <CompactScoreDisplay match={match} />
+        
+        {/* End Innings Button - Prominent position for easy access */}
+        {!match.isCompleted && (
+          <div className="bg-gradient-to-r from-orange-100 to-red-100 border border-orange-200 rounded-lg p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center">
+                  <Trophy className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-gray-900 text-sm">
+                    {match.isSecondInnings ? 'End Match Early?' : 'End First Innings Early?'}
+                  </h3>
+                  <p className="text-xs text-gray-600 mt-1">
+                    For friendly matches with fewer players or early completion
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleEndInnings}
+                className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-2 rounded-lg font-medium text-sm hover:from-orange-600 hover:to-red-600 transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md flex items-center space-x-2"
+              >
+                <Trophy className="w-4 h-4" />
+                <span>{match.isSecondInnings ? 'End Match' : 'End Innings'}</span>
+              </button>
+            </div>
+          </div>
+        )}
         
         <ScoringPanel
           match={match}
@@ -1192,6 +1337,82 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           groupId={currentGroup?.id}
           filterByGroup={isGroupMatch} // Filter by group for group matches
         />
+      )}
+
+      {/* End Innings Confirmation Modal */}
+      {showEndInningsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="bg-gradient-to-r from-orange-500 to-red-500 p-6 text-white rounded-t-2xl">
+              <div className="flex items-center space-x-3">
+                <Trophy className="w-6 h-6" />
+                <h2 className="text-xl font-bold">End Innings Confirmation</h2>
+              </div>
+              <p className="text-sm mt-2 opacity-90">
+                {match.isSecondInnings ? 'This will end the match' : 'This will end the first innings'}
+              </p>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-center space-x-2 mb-2">
+                  <AlertCircle className="w-5 h-5 text-yellow-600" />
+                  <span className="font-medium text-yellow-800">Current Match Status</span>
+                </div>
+                <div className="text-sm text-yellow-700 space-y-1">
+                  <p><strong>{match.battingTeam.name}:</strong> {match.battingTeam.score}/{match.battingTeam.wickets} ({match.battingTeam.overs}.{match.battingTeam.balls} overs)</p>
+                  {match.isSecondInnings && (
+                    <p><strong>Target:</strong> {target} runs</p>
+                  )}
+                  <p><strong>Batting:</strong> {match.currentStriker?.name || 'N/A'} & {match.currentNonStriker?.name || 'N/A'}</p>
+                  <p><strong>Bowling:</strong> {match.currentBowler?.name || 'N/A'}</p>
+                </div>
+              </div>
+              
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-medium text-blue-800 mb-2">Common Scenarios for Early Innings End:</h3>
+                <ul className="text-sm text-blue-700 space-y-1">
+                  <li>• Friendly match with fewer players (e.g., 5-6 players per team)</li>
+                  <li>• All batsmen are out or injured</li>
+                  <li>• Team declares their innings closed</li>
+                  <li>• Time constraints or weather conditions</li>
+                  <li>• Target achieved in second innings</li>
+                </ul>
+              </div>
+
+              {!match.isSecondInnings && (
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <p className="text-sm text-green-700">
+                    <strong>After ending first innings:</strong> You'll proceed to set up the second innings with opening batsmen and bowler selection.
+                  </p>
+                </div>
+              )}
+
+              {match.isSecondInnings && (
+                <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <p className="text-sm text-purple-700">
+                    <strong>After ending second innings:</strong> The match will be completed and final results will be calculated.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 p-6 bg-gray-50 rounded-b-2xl">
+              <button
+                onClick={() => setShowEndInningsModal(false)}
+                className="px-6 py-3 text-gray-600 hover:text-gray-800 font-medium transition-colors rounded-lg hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmEndInnings}
+                className="px-6 py-3 bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold rounded-lg hover:from-orange-600 hover:to-red-600 transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg"
+              >
+                {match.isSecondInnings ? '🏆 End Match' : '🔄 End First Innings'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <AnimatePresence>

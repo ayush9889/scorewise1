@@ -4,7 +4,7 @@ import { User, Group, Invitation } from '../types/auth';
 const DB_NAME = 'CricketScorerDB';
 const DB_VERSION = 5; // Increment version for enhanced persistence
 const BACKUP_KEY = 'cricket_scorer_backup';
-const AUTO_BACKUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
+const AUTO_BACKUP_INTERVAL = 15 * 60 * 1000; // 15 minutes - reduced frequency to prevent crashes
 
 class StorageService {
   private db: IDBDatabase | null = null;
@@ -796,6 +796,341 @@ class StorageService {
         issues: [`Database access error: ${error}`],
         stats: { users: 0, groups: 0, players: 0, matches: 0 }
       };
+    }
+  }
+
+  // USER-CENTRIC DATA STORAGE METHODS
+
+  // Enhanced user methods with comprehensive profile data
+  async saveUserProfile(user: User): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('💾 Saving comprehensive user profile:', user.email || user.phone);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['users'], 'readwrite');
+      const store = transaction.objectStore('users');
+      
+      // Ensure user has complete profile structure
+      const completeUser = this.ensureCompleteUserProfile(user);
+      
+      const request = store.put(completeUser);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('✅ User profile saved successfully');
+        resolve();
+      };
+    });
+  }
+
+  // Get comprehensive user data by email/phone
+  async getUserProfileByIdentifier(identifier: string): Promise<User | null> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🔍 Loading user profile by identifier:', identifier);
+
+    // Try to find by email first, then phone
+    let user = await this.getUserByEmail(identifier);
+    if (!user) {
+      user = await this.getUserByPhone(identifier);
+    }
+
+    if (user) {
+      console.log('✅ User profile loaded:', user.name);
+      // Ensure user has complete profile structure
+      return this.ensureCompleteUserProfile(user);
+    }
+
+    console.log('❌ No user found with identifier:', identifier);
+    return null;
+  }
+
+  // Ensure user has complete profile structure with defaults
+  private ensureCompleteUserProfile(user: User): User {
+    const now = Date.now();
+    
+    return {
+      ...user,
+      profile: user.profile || {
+        playingRole: 'none',
+        battingStyle: 'unknown',
+        bowlingStyle: 'none'
+      },
+      statistics: user.statistics || {
+        totalMatches: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalDraws: 0,
+        totalRuns: 0,
+        totalBallsFaced: 0,
+        highestScore: 0,
+        battingAverage: 0,
+        strikeRate: 0,
+        centuries: 0,
+        halfCenturies: 0,
+        fours: 0,
+        sixes: 0,
+        ducks: 0,
+        totalWickets: 0,
+        totalBallsBowled: 0,
+        totalRunsConceded: 0,
+        bestBowlingFigures: '0/0',
+        bowlingAverage: 0,
+        economyRate: 0,
+        maidenOvers: 0,
+        fiveWicketHauls: 0,
+        catches: 0,
+        runOuts: 0,
+        stumpings: 0,
+        manOfTheMatchAwards: 0,
+        manOfTheSeriesAwards: 0,
+        achievements: [],
+        recentMatches: [],
+        favoriteGroups: [],
+        lastUpdated: now,
+        performanceRating: 0,
+        consistency: 0
+      },
+      preferences: user.preferences || {
+        theme: 'auto',
+        language: 'en',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        notifications: {
+          matchInvites: true,
+          groupUpdates: true,
+          achievements: true,
+          weeklyStats: false,
+          email: true,
+          sms: false,
+          push: true
+        },
+        privacy: {
+          profileVisibility: 'public',
+          statsVisibility: 'public',
+          contactVisibility: 'friends',
+          allowGroupInvites: true,
+          allowFriendRequests: true
+        },
+        matchSettings: {
+          defaultFormat: 'T20',
+          preferredRole: 'any',
+          autoSaveFrequency: 5,
+          scoringShortcuts: true,
+          soundEffects: true,
+          vibration: true
+        }
+      },
+      socialProfile: user.socialProfile || {
+        friends: [],
+        followedUsers: [],
+        followers: [],
+        blockedUsers: [],
+        socialLinks: {}
+      }
+    };
+  }
+
+  // Get all user groups with comprehensive data
+  async getUserGroups(userId: string): Promise<Group[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🔍 Loading user groups for:', userId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['groups'], 'readonly');
+      const store = transaction.objectStore('groups');
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const allGroups = request.result || [];
+        // Filter groups where user is a member or creator
+        const userGroups = allGroups.filter(group => 
+          group.createdBy === userId || 
+          group.members.some(member => member.userId === userId)
+        );
+        
+        console.log(`✅ Found ${userGroups.length} groups for user`);
+        resolve(userGroups);
+      };
+    });
+  }
+
+  // Get all user matches with comprehensive data
+  async getUserMatches(userId: string): Promise<Match[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🔍 Loading user matches for:', userId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['matches'], 'readonly');
+      const store = transaction.objectStore('matches');
+      const request = store.getAll();
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const allMatches = request.result || [];
+        // Filter matches where user participated
+        const userMatches = allMatches.filter(match => 
+          this.isUserInMatch(match, userId)
+        );
+        
+        console.log(`✅ Found ${userMatches.length} matches for user`);
+        resolve(userMatches);
+      };
+    });
+  }
+
+  // Check if user participated in a match
+  private isUserInMatch(match: Match, userId: string): boolean {
+    // Check if user is in either team
+    const inTeam1 = match.team1?.players?.some(player => player.id === userId);
+    const inTeam2 = match.team2?.players?.some(player => player.id === userId);
+    
+    // Check if user scored the match
+    const isScorer = match.scoredBy === userId;
+    
+    return inTeam1 || inTeam2 || isScorer;
+  }
+
+  // Update user statistics after a match
+  async updateUserStatistics(userId: string, matchStats: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('📊 Updating user statistics for:', userId);
+
+    const user = await this.getUser(userId);
+    if (!user) {
+      console.warn('User not found for statistics update:', userId);
+      return;
+    }
+
+    const completeUser = this.ensureCompleteUserProfile(user);
+    
+    // Update statistics based on match performance
+    completeUser.statistics = this.calculateUpdatedStatistics(
+      completeUser.statistics, 
+      matchStats
+    );
+    
+    completeUser.statistics.lastUpdated = Date.now();
+    
+    await this.saveUserProfile(completeUser);
+    console.log('✅ User statistics updated successfully');
+  }
+
+  // Calculate updated statistics
+  private calculateUpdatedStatistics(current: any, matchStats: any): any {
+    return {
+      ...current,
+      totalMatches: current.totalMatches + 1,
+      totalRuns: current.totalRuns + (matchStats.runs || 0),
+      totalBallsFaced: current.totalBallsFaced + (matchStats.ballsFaced || 0),
+      totalWickets: current.totalWickets + (matchStats.wickets || 0),
+      totalBallsBowled: current.totalBallsBowled + (matchStats.ballsBowled || 0),
+      totalRunsConceded: current.totalRunsConceded + (matchStats.runsConceded || 0),
+      catches: current.catches + (matchStats.catches || 0),
+      runOuts: current.runOuts + (matchStats.runOuts || 0),
+      fours: current.fours + (matchStats.fours || 0),
+      sixes: current.sixes + (matchStats.sixes || 0),
+      
+      // Update averages and rates
+      battingAverage: current.totalBallsFaced > 0 ? 
+        (current.totalRuns / current.totalBallsFaced) * 100 : 0,
+      strikeRate: current.totalBallsFaced > 0 ? 
+        (current.totalRuns / current.totalBallsFaced) * 100 : 0,
+      bowlingAverage: current.totalWickets > 0 ? 
+        current.totalRunsConceded / current.totalWickets : 0,
+      economyRate: current.totalBallsBowled > 0 ? 
+        (current.totalRunsConceded / (current.totalBallsBowled / 6)) : 0,
+      
+      // Update highest score
+      highestScore: Math.max(current.highestScore, matchStats.runs || 0),
+      
+      // Update centuries and half-centuries
+      centuries: current.centuries + (matchStats.runs >= 100 ? 1 : 0),
+      halfCenturies: current.halfCenturies + (matchStats.runs >= 50 && matchStats.runs < 100 ? 1 : 0),
+      
+      // Update ducks
+      ducks: current.ducks + (matchStats.runs === 0 && matchStats.ballsFaced > 0 ? 1 : 0),
+      
+      // Update match results
+      totalWins: current.totalWins + (matchStats.result === 'win' ? 1 : 0),
+      totalLosses: current.totalLosses + (matchStats.result === 'loss' ? 1 : 0),
+      totalDraws: current.totalDraws + (matchStats.result === 'draw' ? 1 : 0),
+      
+      // Update MOTM awards
+      manOfTheMatchAwards: current.manOfTheMatchAwards + (matchStats.isMotm ? 1 : 0)
+    };
+  }
+
+  // Get user's complete cricket profile
+  async getUserCricketProfile(identifier: string): Promise<{
+    user: User;
+    groups: Group[];
+    matches: Match[];
+    recentActivity: any[];
+  } | null> {
+    console.log('🏏 Loading complete cricket profile for:', identifier);
+
+    try {
+      const user = await this.getUserProfileByIdentifier(identifier);
+      if (!user) return null;
+
+      const [groups, matches] = await Promise.all([
+        this.getUserGroups(user.id),
+        this.getUserMatches(user.id)
+      ]);
+
+      // Get recent activity (last 10 matches)
+      const recentActivity = matches
+        .sort((a, b) => (b.endTime || b.startTime) - (a.endTime || a.startTime))
+        .slice(0, 10)
+        .map(match => ({
+          type: 'match',
+          matchId: match.id,
+          groupId: match.groupId,
+          date: match.endTime || match.startTime,
+          summary: `${match.team1.name} vs ${match.team2.name}`
+        }));
+
+      console.log('✅ Complete cricket profile loaded successfully');
+      return {
+        user,
+        groups,
+        matches,
+        recentActivity
+      };
+
+    } catch (error) {
+      console.error('❌ Failed to load cricket profile:', error);
+      return null;
+    }
+  }
+
+  // Export user's complete data
+  async exportUserData(identifier: string): Promise<string | null> {
+    console.log('📤 Exporting complete user data for:', identifier);
+
+    try {
+      const profile = await this.getUserCricketProfile(identifier);
+      if (!profile) return null;
+
+      const exportData = {
+        ...profile,
+        exportedAt: Date.now(),
+        version: '1.0',
+        format: 'ScoreWise User Data Export'
+      };
+
+      const jsonData = JSON.stringify(exportData, null, 2);
+      console.log('✅ User data exported successfully');
+      return jsonData;
+
+    } catch (error) {
+      console.error('❌ Failed to export user data:', error);
+      return null;
     }
   }
 }

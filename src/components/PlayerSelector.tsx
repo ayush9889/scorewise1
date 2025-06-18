@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Plus, Search, User, Camera, X, Phone, Crown, Users as UsersIcon } from 'lucide-react';
 import { Player } from '../types/cricket';
 import { storageService } from '../services/storage';
@@ -44,78 +44,53 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
 
   const currentGroup = authService.getCurrentGroup();
 
-  // Load all players and apply filtering
+  // PERFORMANCE FIX: Instant filtering with provided players (no async loading)
   useEffect(() => {
-    const loadAndFilterPlayers = async () => {
-      try {
-        // Load all players from storage
-        const allStoredPlayers = await storageService.getAllPlayers();
-        setAllPlayers(allStoredPlayers);
+    // INSTANT FILTER: Use provided players immediately, no async operations
+    let availablePlayers = [...players]; // Create copy to avoid mutations
 
-        let availablePlayers = allStoredPlayers;
-
-        // Apply group filtering if requested
-        if (filterByGroup && currentGroup) {
-          console.log(`🔍 FILTERING PLAYERS BY GROUP: ${currentGroup.name}`);
-          
-          // Only show players that belong to the current group
-          availablePlayers = allStoredPlayers.filter(player => {
-            const belongsToGroup = player.isGroupMember && 
-                                 player.groupIds?.includes(currentGroup.id);
-            
-            console.log(`Player ${player.name}: belongsToGroup=${belongsToGroup}, isGroupMember=${player.isGroupMember}, groupIds=${player.groupIds}`);
-            return belongsToGroup;
-          });
-          
-          console.log(`✅ GROUP FILTERED RESULT: ${availablePlayers.length} players from group ${currentGroup.name}`);
-        } else {
-          // Use provided players or all players
-          availablePlayers = players.length > 0 ? players : allStoredPlayers;
-        }
-
-        // Apply exclusion filter
-        const finalPlayers = availablePlayers.filter(player => 
-          !excludePlayerIds.includes(player.id)
-        );
-
-        console.log(`🎯 FINAL AVAILABLE PLAYERS: ${finalPlayers.length} players`);
-        setFilteredPlayers(finalPlayers);
-      } catch (error) {
-        console.error('Failed to load players:', error);
-      }
-    };
-
-    loadAndFilterPlayers();
-  }, [players, excludePlayerIds, filterByGroup, currentGroup]);
-
-  // Enhanced search with instant suggestions
-  useEffect(() => {
-    if (searchTerm.trim() === '') {
-      // Reset to all available players when search is empty
-      const availablePlayers = filterByGroup && currentGroup 
-        ? allPlayers.filter(player => 
-            player.isGroupMember && 
-            player.groupIds?.includes(currentGroup.id) &&
-            !excludePlayerIds.includes(player.id)
-          )
-        : allPlayers.filter(player => !excludePlayerIds.includes(player.id));
+    // Apply group filtering if requested
+    if (filterByGroup && currentGroup) {
+      console.log(`🔍 FILTERING PLAYERS BY GROUP: ${currentGroup.name}`);
       
-      setFilteredPlayers(availablePlayers);
-      setSearchSuggestions([]);
-      setShowSuggestions(false);
-      return;
+      // Only show players that belong to the current group
+      availablePlayers = availablePlayers.filter(player => {
+        const belongsToGroup = player.isGroupMember && 
+                             player.groupIds?.includes(currentGroup.id);
+        return belongsToGroup;
+      });
+      
+      console.log(`✅ GROUP FILTERED RESULT: ${availablePlayers.length} players from group ${currentGroup.name}`);
     }
 
-    // Get base players for searching
-    const basePlayersForSearch = filterByGroup && currentGroup 
+    // Apply exclusion filter
+    const finalPlayers = availablePlayers.filter(player => 
+      !excludePlayerIds.includes(player.id)
+    );
+
+    console.log(`🎯 FINAL AVAILABLE PLAYERS: ${finalPlayers.length} players`);
+    setFilteredPlayers(finalPlayers);
+    setAllPlayers(players); // Set all players for search
+  }, [players, excludePlayerIds, filterByGroup, currentGroup]);
+
+  // MEMOIZED: Base players for search (prevents recalculation)
+  const basePlayersForSearch = useMemo(() => {
+    return filterByGroup && currentGroup 
       ? allPlayers.filter(player => 
           player.isGroupMember && 
           player.groupIds?.includes(currentGroup.id)
         )
       : allPlayers;
+  }, [allPlayers, filterByGroup, currentGroup]);
+
+  // MEMOIZED: Search results (only recalculate when inputs change)
+  const searchResults = useMemo(() => {
+    if (searchTerm.trim() === '') {
+      return basePlayersForSearch.filter(player => !excludePlayerIds.includes(player.id));
+    }
 
     // Filter by search term
-    const searchResults = basePlayersForSearch.filter(player => {
+    const results = basePlayersForSearch.filter(player => {
       const matchesName = player.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesShortId = player.shortId && 
                             player.shortId.toLowerCase().includes(searchTerm.toLowerCase());
@@ -125,7 +100,7 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
     });
 
     // Sort by relevance (exact matches first, then starts with, then contains)
-    searchResults.sort((a, b) => {
+    results.sort((a, b) => {
       const aName = a.name.toLowerCase();
       const bName = b.name.toLowerCase();
       const searchLower = searchTerm.toLowerCase();
@@ -146,6 +121,11 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
       return aName.localeCompare(bName);
     });
 
+    return results;
+  }, [searchTerm, basePlayersForSearch, excludePlayerIds]);
+
+  // Update filtered players when search results change
+  useEffect(() => {
     setFilteredPlayers(searchResults);
     
     // Show suggestions for single character searches
@@ -158,7 +138,7 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
     }
 
     console.log(`🔍 SEARCH "${searchTerm}": ${searchResults.length} results`);
-  }, [searchTerm, allPlayers, excludePlayerIds, filterByGroup, currentGroup]);
+  }, [searchResults, searchTerm]);
 
   const handlePhotoSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -328,6 +308,11 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   };
 
   const getPlayerTypeBadge = (player: Player) => {
+    // Check if player is group admin/creator (match by user ID embedded in player ID)
+    const isGroupAdmin = currentGroup && 
+      (currentGroup.createdBy === player.id.replace('player_', '') || 
+       currentGroup.members?.some(m => m.userId === player.id.replace('player_', '') && m.role === 'admin'));
+
     if (player.isGuest) {
       return (
         <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full flex items-center">
@@ -336,12 +321,21 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
         </span>
       );
     } else if (player.isGroupMember && currentGroup && player.groupIds?.includes(currentGroup.id)) {
-      return (
-        <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full flex items-center">
-          <Crown className="w-3 h-3 mr-1" />
-          Group Member
-        </span>
-      );
+      if (isGroupAdmin) {
+        return (
+          <span className="text-xs bg-gradient-to-r from-purple-500 to-pink-500 text-white px-2 py-1 rounded-full flex items-center">
+            <Crown className="w-3 h-3 mr-1" />
+            Admin
+          </span>
+        );
+      } else {
+        return (
+          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full flex items-center">
+            <Crown className="w-3 h-3 mr-1" />
+            Member
+          </span>
+        );
+      }
     } else if (player.isGroupMember) {
       return (
         <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full flex items-center">
@@ -360,8 +354,8 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fadeIn">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col modal-performance no-flicker animate-slideUp">
         {/* Header - Fixed */}
         <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-6 text-white rounded-t-2xl flex-shrink-0">
           <div className="flex justify-between items-center">
@@ -507,10 +501,26 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                       <h4 className="text-sm font-semibold text-purple-800 flex items-center">
                         <Crown className="w-4 h-4 mr-2" />
                         {currentGroup?.name || 'Group'} Members
+                        <span className="ml-2 text-xs bg-white text-purple-600 px-2 py-1 rounded-full">
+                          Admins can play too!
+                        </span>
                       </h4>
                     </div>
                     {filteredPlayers
                       .filter(p => p.isGroupMember && currentGroup && p.groupIds?.includes(currentGroup.id))
+                      .sort((a, b) => {
+                        // Sort admins first, then regular members
+                        const aIsAdmin = currentGroup.createdBy === a.id.replace('player_', '') || 
+                          currentGroup.members?.some(m => m.userId === a.id.replace('player_', '') && m.role === 'admin');
+                        const bIsAdmin = currentGroup.createdBy === b.id.replace('player_', '') || 
+                          currentGroup.members?.some(m => m.userId === b.id.replace('player_', '') && m.role === 'admin');
+                        
+                        if (aIsAdmin && !bIsAdmin) return -1;
+                        if (!aIsAdmin && bIsAdmin) return 1;
+                        
+                        // Then sort alphabetically
+                        return a.name.localeCompare(b.name);
+                      })
                       .map((player) => (
                         <button
                           key={player.id}

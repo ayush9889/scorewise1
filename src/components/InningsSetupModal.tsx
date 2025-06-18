@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { X, Users, Target, Play } from 'lucide-react';
 import { Player, Match } from '../types/cricket';
 import { PlayerSelector } from './PlayerSelector';
@@ -28,67 +28,72 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
     title: string;
   } | null>(null);
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      loadPlayers();
       // Reset selections when modal opens
       setStriker(null);
       setNonStriker(null);
       setBowler(null);
       
-      // CRITICAL FIX: Add timeout to prevent infinite loading
-      const loadTimeout = setTimeout(() => {
-        if (loading) {
-          console.warn('⚠️ Player loading taking too long, using cached players');
-          setLoading(false);
-        }
-      }, 5000); // 5 second timeout
-      
-      return () => clearTimeout(loadTimeout);
+      // PERFORMANCE FIX: Load players instantly from match data first
+      const quickPlayers = getPlayersFromMatch();
+      if (quickPlayers.length > 0) {
+        setAllPlayers(quickPlayers);
+        setLoading(false);
+        console.log('⚡ INSTANT LOAD: Using players from match data');
+      } else {
+        // Fallback to async loading if no match players
+        loadPlayersAsync();
+      }
     }
-  }, [isOpen, loading]);
+  }, [isOpen]);
 
-  const loadPlayers = async () => {
+  // PERFORMANCE OPTIMIZATION: Get players from match teams instantly
+  const getPlayersFromMatch = (): Player[] => {
+    const players: Player[] = [];
+    
+    // Get all players from both teams
+    if (match.team1?.players) {
+      players.push(...match.team1.players);
+    }
+    if (match.team2?.players) {
+      players.push(...match.team2.players);
+    }
+    
+    // Remove duplicates by ID
+    const uniquePlayers = players.filter((player, index, self) => 
+      index === self.findIndex(p => p.id === player.id)
+    );
+    
+    return uniquePlayers;
+  };
+
+  // BACKGROUND: Load additional players from storage (non-blocking)
+  const loadPlayersAsync = async () => {
     try {
       setLoading(true);
-      console.log('🔄 Loading players for innings setup...');
+      console.log('🔄 Loading additional players from storage...');
       
-      const players = await storageService.getAllPlayers();
-      console.log(`✅ Loaded ${players.length} players`);
-      setAllPlayers(players);
+      // Get players from storage in background
+      const storedPlayers = await storageService.getAllPlayers();
+      
+      // Merge with match players (avoid duplicates)
+      const matchPlayers = getPlayersFromMatch();
+      const allUniqueIds = new Set(matchPlayers.map(p => p.id));
+      const additionalPlayers = storedPlayers.filter(p => !allUniqueIds.has(p.id));
+      
+      const combinedPlayers = [...matchPlayers, ...additionalPlayers];
+      
+      console.log(`✅ Combined total: ${combinedPlayers.length} players (${matchPlayers.length} from match, ${additionalPlayers.length} additional)`);
+      setAllPlayers(combinedPlayers);
     } catch (error) {
-      console.error('❌ Failed to load players:', error);
-      
-      // Fallback: try to get players from match teams
-      const fallbackPlayers: Player[] = [];
-      if (match.team1?.players) {
-        fallbackPlayers.push(...match.team1.players);
-      }
-      if (match.team2?.players) {
-        fallbackPlayers.push(...match.team2.players);
-      }
-      
-      if (fallbackPlayers.length > 0) {
-        console.log(`🔄 Using fallback players from teams: ${fallbackPlayers.length}`);
-        setAllPlayers(fallbackPlayers);
-      } else {
-        console.warn('⚠️ No players available, creating default players');
-        // Create some basic placeholder players as last resort
-        const defaultPlayers: Player[] = [
-          { id: 'default_1', name: 'Player 1', shortId: 'P1' },
-          { id: 'default_2', name: 'Player 2', shortId: 'P2' },
-          { id: 'default_3', name: 'Player 3', shortId: 'P3' },
-          { id: 'default_4', name: 'Player 4', shortId: 'P4' },
-          { id: 'default_5', name: 'Player 5', shortId: 'P5' },
-          { id: 'default_6', name: 'Player 6', shortId: 'P6' }
-        ];
-        setAllPlayers(defaultPlayers);
-      }
+      console.error('❌ Failed to load additional players:', error);
+      // Keep the match players we already have
+      console.log('ℹ️ Continuing with match players only');
     } finally {
       setLoading(false);
-      console.log('✅ Player loading complete');
     }
   };
 
@@ -113,64 +118,67 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
     setShowPlayerSelector(null);
   };
 
-  const getAvailablePlayers = (type: string): Player[] => {
-    const currentGroup = authService.getCurrentGroup();
-    const isGroupMatch = !match.isStandalone && currentGroup;
-    
-    switch (type) {
-      case 'striker':
-      case 'nonStriker':
-        // For batsmen, exclude:
-        // 1. The other selected batsman
-        // 2. Any selected bowler
-        // 3. Players who are already in the bowling team
-        let battingPlayers = allPlayers.filter(p => 
-          p.id !== striker?.id && 
-          p.id !== nonStriker?.id &&
-          p.id !== bowler?.id &&
-          !match.bowlingTeam.players.some(bowler => bowler.id === p.id)
-        );
-        
-        // For group matches, prioritize group members but allow others
-        if (isGroupMatch) {
-          const groupPlayers = battingPlayers.filter(p => 
-            p.isGroupMember && p.groupIds?.includes(currentGroup.id)
+  // MEMOIZED: Available players calculation to prevent re-computation
+  const getAvailablePlayers = useMemo(() => {
+    return (type: string): Player[] => {
+      const currentGroup = authService.getCurrentGroup();
+      const isGroupMatch = !match.isStandalone && currentGroup;
+      
+      switch (type) {
+        case 'striker':
+        case 'nonStriker':
+          // For batsmen, exclude:
+          // 1. The other selected batsman
+          // 2. Any selected bowler
+          // 3. Players who are already in the bowling team
+          let battingPlayers = allPlayers.filter(p => 
+            p.id !== striker?.id && 
+            p.id !== nonStriker?.id &&
+            p.id !== bowler?.id &&
+            !match.bowlingTeam.players.some(bowler => bowler.id === p.id)
           );
-          const otherPlayers = battingPlayers.filter(p => 
-            !(p.isGroupMember && p.groupIds?.includes(currentGroup.id))
+          
+          // For group matches, prioritize group members but allow others
+          if (isGroupMatch) {
+            const groupPlayers = battingPlayers.filter(p => 
+              p.isGroupMember && p.groupIds?.includes(currentGroup.id)
+            );
+            const otherPlayers = battingPlayers.filter(p => 
+              !(p.isGroupMember && p.groupIds?.includes(currentGroup.id))
+            );
+            return [...groupPlayers, ...otherPlayers];
+          }
+          
+          return battingPlayers;
+          
+        case 'bowler':
+          // For bowler, exclude:
+          // 1. Selected batsmen
+          // 2. Players who are already in the batting team
+          let bowlingPlayers = allPlayers.filter(p => 
+            p.id !== striker?.id && 
+            p.id !== nonStriker?.id &&
+            !match.battingTeam.players.some(batsman => batsman.id === p.id)
           );
-          return [...groupPlayers, ...otherPlayers];
-        }
-        
-        return battingPlayers;
-        
-      case 'bowler':
-        // For bowler, exclude:
-        // 1. Selected batsmen
-        // 2. Players who are already in the batting team
-        let bowlingPlayers = allPlayers.filter(p => 
-          p.id !== striker?.id && 
-          p.id !== nonStriker?.id &&
-          !match.battingTeam.players.some(batsman => batsman.id === p.id)
-        );
-        
-        // For group matches, prioritize group members but allow others
-        if (isGroupMatch) {
-          const groupPlayers = bowlingPlayers.filter(p => 
-            p.isGroupMember && p.groupIds?.includes(currentGroup.id)
-          );
-          const otherPlayers = bowlingPlayers.filter(p => 
-            !(p.isGroupMember && p.groupIds?.includes(currentGroup.id))
-          );
-          return [...groupPlayers, ...otherPlayers];
-        }
-        
-        return bowlingPlayers;
-        
-      default:
-        return allPlayers;
-    }
-  };
+          
+          // For group matches, prioritize group members but allow others
+          if (isGroupMatch) {
+            const groupPlayers = bowlingPlayers.filter(p => 
+              p.isGroupMember && p.groupIds?.includes(currentGroup.id)
+            );
+            const otherPlayers = bowlingPlayers.filter(p => 
+              !(p.isGroupMember && p.groupIds?.includes(currentGroup.id))
+            );
+            return [...groupPlayers, ...otherPlayers];
+          }
+          
+          return bowlingPlayers;
+          
+        default:
+          return allPlayers;
+      }
+    };
+  }, [allPlayers, striker, nonStriker, bowler, match]);
 
   const handleInningsSetup = (striker: Player, nonStriker: Player, bowler: Player) => {
     if (!striker || !nonStriker || !bowler) {
@@ -204,22 +212,12 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
 
   if (!isOpen) return null;
 
-  if (loading) {
-    return (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-2xl p-8">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading players...</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // PERFORMANCE: Show modal immediately, load additional players in background
+  // No loading spinner needed since we show match players instantly
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 animate-fadeIn">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto transform transition-all duration-200 animate-slideUp">
         <div className="p-6 border-b border-gray-200">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-900">

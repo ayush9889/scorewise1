@@ -78,3 +78,59 @@
 .card-hover {
   @apply hover:bg-white/20 transition-all duration-500 border border-white/20 hover:border-purple-400/50 hover:scale-105;
 }
+
+/* Smooth modal animations for instant UI responsiveness */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.15s ease-out;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.2s ease-out;
+}
+
+.animate-slideDown {
+  animation: slideDown 0.15s ease-out;
+}
+
+/* Instant loading prevention for smooth UX */
+.no-flicker {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+}
+
+/* Optimize modal performance */
+.modal-performance {
+  will-change: transform, opacity;
+  contain: layout style paint;
+}

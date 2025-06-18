@@ -5,6 +5,7 @@ import { Dashboard } from './components/Dashboard';
 import { AuthModal } from './components/AuthModal';
 import { GroupManagement } from './components/GroupManagement';
 import { AdminDashboard } from './components/AdminDashboard';
+import UserProfileDashboard from './components/UserProfileDashboard';
 import { AddPlayerModal } from './components/AddPlayerModal';
 import { DetailedScorecardModal } from './components/DetailedScorecardModal';
 import { Match, Player } from './types/cricket';
@@ -15,7 +16,7 @@ import { authService } from './services/authService';
 import { PDFService } from './services/pdfService';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 
-type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete';
+type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete';
 
 function App() {
   const [currentState, setCurrentState] = useState<AppState>('home');
@@ -33,6 +34,7 @@ function App() {
     lastSync?: Date;
   }>({ online: false, firebaseWorking: false });
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
+  const [activeMatch, setActiveMatch] = useState<Match | null>(null);
 
   useEffect(() => {
     initializeApp();
@@ -46,25 +48,41 @@ function App() {
     }, 10000); // 10 second timeout
     
     // Cleanup function to ensure final backup when app closes
-    const handleBeforeUnload = async () => {
+    const handleBeforeUnload = () => {
       try {
-        await storageService.createBackup();
-        await storageService.stopAutoBackup();
-        console.log('🔄 Final backup completed before app close');
+        // Use synchronous operations for beforeunload
+        storageService.stopAutoBackup();
+        console.log('🔄 Auto-backup stopped before app close');
       } catch (error) {
-        console.error('❌ Final backup failed:', error);
+        console.error('❌ Cleanup failed:', error);
       }
     };
 
-    // Add event listeners for app close
+    // Visibility change handler for better app state management
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Tab became inactive - save current state
+        try {
+          storageService.createBackup().catch(error => {
+            console.warn('⚠️ Background backup failed:', error);
+          });
+        } catch (error) {
+          console.warn('⚠️ Visibility change backup failed:', error);
+        }
+      }
+    };
+
+    // Add event listeners for app close and visibility change
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
     
     // Cleanup function
     return () => {
       clearTimeout(initTimeout);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       storageService.stopAutoBackup();
     };
   }, []);
@@ -72,6 +90,42 @@ function App() {
   const initializeApp = async () => {
     try {
       console.log('🚀 Initializing ScoreWise app...');
+      
+      // FAST TRACK: Check for existing user session first
+      const storedUser = localStorage.getItem('currentUser');
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          console.log('🚀 INSTANT SESSION RESTORE from localStorage:', user.name);
+          
+          // Load complete user profile from storage if email/phone exists
+          if (user.email || user.phone) {
+            try {
+              const completeProfile = await storageService.getUserProfileByIdentifier(
+                user.email || user.phone
+              );
+              if (completeProfile) {
+                console.log('📊 LOADED COMPLETE USER PROFILE with statistics');
+                authService.setCurrentUser(completeProfile);
+                setCurrentUser(completeProfile);
+              } else {
+                authService.setCurrentUser(user);
+                setCurrentUser(user);
+              }
+            } catch (error) {
+              console.warn('⚠️ Failed to load complete profile, using cached user:', error);
+              authService.setCurrentUser(user);
+              setCurrentUser(user);
+            }
+          } else {
+            authService.setCurrentUser(user);
+            setCurrentUser(user);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to parse stored user, will need fresh login:', error);
+          localStorage.removeItem('currentUser');
+        }
+      }
       
       // Initialize storage first
       await storageService.init();
@@ -89,87 +143,103 @@ function App() {
         if (restored) {
           console.log('✅ Data restored from backup');
         } else {
-          console.warn('⚠️ No backup available for recovery');
+          console.log('ℹ️ No backup available, starting fresh');
         }
       }
       
-      // Start automatic backup system
+      // CRITICAL: Restore full user session after storage is ready
+      await authService.restoreUserSession();
+      
+      // Update user state if it was restored from authService (might be different from localStorage)
+      const sessionUser = authService.getCurrentUser();
+      if (sessionUser && sessionUser !== currentUser) {
+        setCurrentUser(sessionUser);
+        console.log('🔄 User session updated from authService:', sessionUser.name);
+      }
+      
+      // Set current group if user has groups
+      const groups = authService.getUserGroups();
+      if (groups.length > 0 && !currentGroup) {
+        setCurrentGroup(groups[0]);
+        console.log('✅ Current group set:', groups[0].name);
+      }
+      
+      // Check for active/incomplete matches to resume
+      await checkForActiveMatch();
+      
+      // Initialize backup system
       await storageService.startAutoBackup();
       console.log('🔄 Auto-backup system started');
       
-      // CRITICAL: Restore user session AFTER storage is initialized
-      await authService.restoreUserSession();
-      const user = authService.getCurrentUser();
-      if (user) {
-        console.log('✅ User session restored:', user.name);
-        setCurrentUser(user);
-        
-        // Load user's groups
-        const groups = authService.getUserGroups();
-        console.log('✅ User groups restored:', groups.length);
-        
-        if (groups.length > 0) {
-          const primaryGroup = groups[0];
-          setCurrentGroup(primaryGroup);
-          console.log('✅ Primary group set:', primaryGroup.name);
+      // Initialize cloud storage if online
+      if (navigator.onLine) {
+        try {
+          // Test Firebase connection
+          await cloudStorageService.testConnection();
+          setConnectionStatus(prev => ({ ...prev, firebaseWorking: true }));
+          console.log('☁️ Cloud storage connection verified');
+        } catch (error) {
+          console.warn('⚠️ Cloud storage connection failed:', error);
+          setConnectionStatus(prev => ({ ...prev, firebaseWorking: false }));
         }
-      } else {
-        console.log('ℹ️ No user session found');
       }
       
-      // Check if standalone mode was enabled
-      const standaloneMode = authService.isStandaloneModeEnabled();
-      setIsStandaloneMode(standaloneMode);
-      if (standaloneMode) {
-        console.log('🏏 Standalone mode detected');
-      }
+      console.log('🎉 App initialization completed successfully');
       
-      // Check connection status
-      const status = await cloudStorageService.checkConnection();
-      setConnectionStatus(status);
-      console.log('📡 Connection status:', status);
-      
-      setIsInitialized(true);
-      console.log('🎉 App initialization complete with enhanced persistence');
     } catch (error) {
       console.error('❌ Failed to initialize app:', error);
       
-      // Try to recover from backup even if initialization fails
+      // Try to continue with minimal functionality
       try {
-        console.log('🔄 Attempting emergency recovery...');
-        const recovered = await storageService.restoreFromBackup();
-        if (recovered) {
-          console.log('✅ Emergency recovery successful');
-        }
-      } catch (recoveryError) {
-        console.error('❌ Emergency recovery failed:', recoveryError);
+        await storageService.init();
+        console.log('✅ Minimal storage initialization successful');
+      } catch (criticalError) {
+        console.error('💥 Critical initialization failure:', criticalError);
+        // Even if storage fails, let the app continue
       }
-      
-      setIsInitialized(true); // Continue even if storage fails
+    } finally {
+      setIsInitialized(true);
     }
   };
 
   const handleAuthSuccess = async () => {
+    console.log('🚀 Starting optimized auth success flow...');
+    
+    // INSTANT UI UPDATE: Get user and update UI immediately
     const user = authService.getCurrentUser();
-    await authService.loadUserGroups();
-    const groups = authService.getUserGroups();
-    
     setCurrentUser(user);
-    
-    if (groups.length > 0) {
-      setCurrentGroup(groups[0]);
-    }
-    
     setShowAuthModal(false);
     
-    // Disable standalone mode when user signs in
-    if (isStandaloneMode) {
-      authService.disableStandaloneMode();
-      setIsStandaloneMode(false);
+    // Optimistic UI: Show home immediately for better UX
+    setCurrentState('home');
+    
+    console.log('✅ UI updated immediately for user:', user?.name);
+    
+    // BACKGROUND OPERATIONS: Load groups in the background without blocking UI
+    try {
+      // Disable standalone mode when user signs in
+      if (isStandaloneMode) {
+        authService.disableStandaloneMode();
+        setIsStandaloneMode(false);
+      }
+      
+      // Load user groups in the background
+      console.log('🔄 Loading user groups in background...');
+      await authService.loadUserGroups();
+      const groups = authService.getUserGroups();
+      
+      // Update groups state once loaded
+      if (groups.length > 0) {
+        setCurrentGroup(groups[0]);
+        console.log(`✅ Loaded ${groups.length} groups for user`);
+      }
+      
+    } catch (error) {
+      console.error('⚠️ Background group loading failed (non-critical):', error);
+      // Don't show error to user as this is background operation
     }
     
-    // Always redirect to home after successful authentication
-    setCurrentState('home');
+    console.log('🎉 Auth success flow completed');
   };
 
   const handleSignOut = async () => {
@@ -183,6 +253,7 @@ function App() {
   const handleMatchStart = (match: Match) => {
     setCurrentMatch(match);
     setCurrentState('live-scoring');
+    setActiveMatch(match); // Set as active match when started
   };
 
   const handleMatchComplete = (match: Match) => {
@@ -203,11 +274,13 @@ function App() {
     
     setCurrentMatch(match);
     setCurrentState('match-complete');
+    setActiveMatch(null); // Clear active match when completed
   };
 
   const handleResumeMatch = (match: Match) => {
     setCurrentMatch(match);
     setCurrentState('live-scoring');
+    setActiveMatch(null); // Clear active match since it's now being resumed
   };
 
   const handleBackToHome = () => {
@@ -224,6 +297,23 @@ function App() {
     authService.enableStandaloneMode();
     setIsStandaloneMode(true);
     setCurrentState('standalone-setup');
+  };
+
+  const checkForActiveMatch = async () => {
+    try {
+      const matches = await storageService.getMatches();
+      // Find the most recent incomplete match
+      const incompleteMatch = matches
+        .filter(match => !match.isCompleted)
+        .sort((a, b) => b.startTime - a.startTime)[0];
+      
+      if (incompleteMatch) {
+        setActiveMatch(incompleteMatch);
+        console.log('📊 Found active match to resume:', incompleteMatch.team1.name, 'vs', incompleteMatch.team2.name);
+      }
+    } catch (error) {
+      console.error('❌ Error checking for active matches:', error);
+    }
   };
 
   if (!isInitialized) {
@@ -276,6 +366,14 @@ function App() {
               
               {currentUser ? (
                 <div className="flex items-center space-x-3">
+                  <button
+                    onClick={() => setCurrentState('user-profile')}
+                    className="p-3 bg-gradient-to-r from-blue-500 to-purple-500 rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-300"
+                    title="My Cricket Profile"
+                  >
+                    <UserIcon className="w-5 h-5 text-white" />
+                  </button>
+                  
                   <button
                     onClick={() => setCurrentState('admin-dashboard')}
                     className="p-3 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-xl hover:shadow-lg hover:scale-105 transition-all duration-300"
@@ -378,6 +476,38 @@ function App() {
           </div>
         )}
 
+        {/* Resume Match Banner */}
+        {activeMatch && (
+          <div className="relative z-10 mx-6 mb-6">
+            <div className="bg-gradient-to-r from-green-500/20 to-emerald-500/20 backdrop-blur-sm border border-green-400/30 rounded-xl p-6 max-w-6xl mx-auto">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-4">
+                  <div className="bg-green-500 p-3 rounded-full">
+                    <Play className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-green-100 text-lg font-semibold mb-1">Resume Match</h3>
+                    <p className="text-green-200 text-sm">
+                      {activeMatch.team1.name} vs {activeMatch.team2.name} • 
+                      {activeMatch.currentInnings === 1 ? 'First' : 'Second'} innings in progress
+                    </p>
+                    <p className="text-green-300 text-xs mt-1">
+                      Started {new Date(activeMatch.startTime).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleResumeMatch(activeMatch)}
+                  className="px-6 py-3 bg-green-500 hover:bg-green-600 text-white rounded-lg font-medium transition-all duration-300 hover:scale-105 flex items-center space-x-2"
+                >
+                  <Play className="w-4 h-4" />
+                  <span>Resume</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Hero Section */}
         <div className="relative z-10 px-6 pb-12">
           <div className="max-w-4xl mx-auto text-center">
@@ -418,6 +548,7 @@ function App() {
               <button
                 onClick={() => {
                   if (currentUser && currentGroup) {
+                    // User is signed in and has a group - proceed to match setup
                     setCurrentState('match-setup');
                   } else if (currentUser?.isGuest) {
                     // For guest users, create a temporary group and proceed to match setup
@@ -451,7 +582,11 @@ function App() {
                     setCurrentGroup(tempGroup);
                     authService.setCurrentGroup(tempGroup);
                     setCurrentState('match-setup');
+                  } else if (currentUser && !currentGroup) {
+                    // User is signed in but has no group - take them to group management
+                    setCurrentState('group-management');
                   } else {
+                    // User is not signed in - show sign in modal
                     setAuthMode('signin');
                     setShowAuthModal(true);
                   }
@@ -587,10 +722,10 @@ function App() {
               <div className="grid md:grid-cols-3 gap-8">
                 <div className="group bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center hover:bg-white/20 transition-all duration-500 border border-white/20 hover:border-purple-400/50">
                   <div className="bg-gradient-to-r from-green-500 to-emerald-500 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 group-hover:scale-110 transition-transform duration-300">
-                    <Target className="w-8 h-8 text-white" />
+                    <Sparkles className="w-8 h-8 text-white" />
                   </div>
-                  <h3 className="text-xl font-bold text-white mb-4">STRICT Match Format</h3>
-                  <p className="text-purple-200 leading-relaxed">Exactly N overs - no more, no less. Perfect format enforcement for fair play</p>
+                  <h3 className="text-xl font-bold text-white mb-4">No Apps Required</h3>
+                  <p className="text-purple-200 leading-relaxed">Run directly in your browser. No downloads, no installations, instant access</p>
                 </div>
 
                 <div className="group bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-center hover:bg-white/20 transition-all duration-500 border border-white/20 hover:border-blue-400/50">
@@ -650,6 +785,10 @@ function App() {
 
   if (currentState === 'admin-dashboard') {
     return <AdminDashboard onBack={handleBackToHome} />;
+  }
+
+  if (currentState === 'user-profile') {
+    return <UserProfileDashboard onBack={handleBackToHome} />;
   }
 
   if (currentState === 'group-management') {

@@ -1,4 +1,5 @@
 import { User, Group, GroupMember, Invitation } from '../types/auth';
+import { Player } from '../types/cricket';
 import { storageService } from './storage';
 import { firebasePhoneAuthService } from './firebasePhoneAuthService';
 import { firebaseAuthService } from './firebaseAuthService';
@@ -67,7 +68,7 @@ class AuthService {
       throw new Error('User with this phone number already exists');
     }
 
-    // Create new user (unverified initially)
+    // Create comprehensive user profile
     const user: User = {
       id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       email: '', // No email for phone signup
@@ -76,33 +77,122 @@ class AuthService {
       isVerified: false, // Will be verified after OTP
       createdAt: Date.now(),
       lastLoginAt: Date.now(),
-      groupIds: []
+      groupIds: [],
+      
+      // Initialize complete profile structure
+      profile: {
+        displayName: name,
+        playingRole: 'none',
+        battingStyle: 'unknown',
+        bowlingStyle: 'none'
+      },
+      statistics: {
+        totalMatches: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalDraws: 0,
+        totalRuns: 0,
+        totalBallsFaced: 0,
+        highestScore: 0,
+        battingAverage: 0,
+        strikeRate: 0,
+        centuries: 0,
+        halfCenturies: 0,
+        fours: 0,
+        sixes: 0,
+        ducks: 0,
+        totalWickets: 0,
+        totalBallsBowled: 0,
+        totalRunsConceded: 0,
+        bestBowlingFigures: '0/0',
+        bowlingAverage: 0,
+        economyRate: 0,
+        maidenOvers: 0,
+        fiveWicketHauls: 0,
+        catches: 0,
+        runOuts: 0,
+        stumpings: 0,
+        manOfTheMatchAwards: 0,
+        manOfTheSeriesAwards: 0,
+        achievements: [],
+        recentMatches: [],
+        favoriteGroups: [],
+        lastUpdated: Date.now(),
+        performanceRating: 0,
+        consistency: 0
+      },
+      preferences: {
+        theme: 'auto',
+        language: 'en',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        notifications: {
+          matchInvites: true,
+          groupUpdates: true,
+          achievements: true,
+          weeklyStats: false,
+          email: false, // No email for phone users
+          sms: true,
+          push: true
+        },
+        privacy: {
+          profileVisibility: 'public',
+          statsVisibility: 'public',
+          contactVisibility: 'friends',
+          allowGroupInvites: true,
+          allowFriendRequests: true
+        },
+        matchSettings: {
+          defaultFormat: 'T20',
+          preferredRole: 'any',
+          autoSaveFrequency: 5,
+          scoringShortcuts: true,
+          soundEffects: true,
+          vibration: true
+        }
+      },
+      socialProfile: {
+        friends: [],
+        followedUsers: [],
+        followers: [],
+        blockedUsers: [],
+        socialLinks: {}
+      }
     };
 
-    await storageService.saveUser(user);
-    console.log('📱 User created with phone:', phone);
+    await storageService.saveUserProfile(user);
+    console.log('📱 Comprehensive user profile created with phone:', phone);
     return user;
   }
 
   async signInWithPhone(phone: string): Promise<User> {
-    const user = await storageService.getUserByPhone(phone);
+    console.log('🔐 Signing in with phone:', phone);
+    
+    const user = await storageService.getUserProfileByIdentifier(phone);
     if (!user) {
       throw new Error('No account found with this phone number');
     }
 
-    // Update last login
+    // Update last login immediately
     user.lastLoginAt = Date.now();
-    await storageService.saveUser(user);
     
+    // INSTANT UPDATE: Set current user immediately
     this.currentUser = user;
     
-    // CRITICAL: Persist to localStorage immediately
+    // CRITICAL: Persist to localStorage immediately for instant access
     localStorage.setItem('currentUser', JSON.stringify(user));
+    console.log('✅ User session saved to localStorage immediately');
     
-    // Load user's groups
-    await this.loadUserGroups();
+    // Background save to storage service with comprehensive profile
+    storageService.saveUserProfile(user).catch(error => {
+      console.warn('⚠️ Background user profile save failed:', error);
+    });
     
-    console.log('📱 User signed in with phone:', phone);
+    // Load user's groups in background
+    this.loadUserGroups().catch(error => {
+      console.warn('⚠️ Background group loading failed:', error);
+    });
+    
+    console.log('🎉 Phone sign-in completed for:', user.name);
     return user;
   }
 
@@ -257,48 +347,155 @@ class AuthService {
 
   // Original Email Authentication Methods (unchanged)
   async signUp(email: string, password: string, name: string, phone?: string): Promise<User> {
+    console.log('🔐 Creating comprehensive user profile with email:', email);
+
     // Check if user already exists
     const existingUser = await storageService.getUserByEmail(email);
     if (existingUser) {
       throw new Error('User with this email already exists');
     }
 
+    // Create comprehensive user profile
     const user: User = {
       id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       email,
       name,
       phone,
-      isVerified: true, // Email users are verified by default (in real app, would need email verification)
+      password, // Note: In production, this should be hashed
+      isVerified: true, // Email users are verified immediately for demo
       createdAt: Date.now(),
       lastLoginAt: Date.now(),
-      groupIds: []
+      groupIds: [],
+      
+      // Initialize complete profile structure
+      profile: {
+        displayName: name,
+        playingRole: 'none',
+        battingStyle: 'unknown',
+        bowlingStyle: 'none'
+      },
+      statistics: {
+        totalMatches: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalDraws: 0,
+        totalRuns: 0,
+        totalBallsFaced: 0,
+        highestScore: 0,
+        battingAverage: 0,
+        strikeRate: 0,
+        centuries: 0,
+        halfCenturies: 0,
+        fours: 0,
+        sixes: 0,
+        ducks: 0,
+        totalWickets: 0,
+        totalBallsBowled: 0,
+        totalRunsConceded: 0,
+        bestBowlingFigures: '0/0',
+        bowlingAverage: 0,
+        economyRate: 0,
+        maidenOvers: 0,
+        fiveWicketHauls: 0,
+        catches: 0,
+        runOuts: 0,
+        stumpings: 0,
+        manOfTheMatchAwards: 0,
+        manOfTheSeriesAwards: 0,
+        achievements: [],
+        recentMatches: [],
+        favoriteGroups: [],
+        lastUpdated: Date.now(),
+        performanceRating: 0,
+        consistency: 0
+      },
+      preferences: {
+        theme: 'auto',
+        language: 'en',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        notifications: {
+          matchInvites: true,
+          groupUpdates: true,
+          achievements: true,
+          weeklyStats: true,
+          email: true,
+          sms: !!phone,
+          push: true
+        },
+        privacy: {
+          profileVisibility: 'public',
+          statsVisibility: 'public',
+          contactVisibility: 'friends',
+          allowGroupInvites: true,
+          allowFriendRequests: true
+        },
+        matchSettings: {
+          defaultFormat: 'T20',
+          preferredRole: 'any',
+          autoSaveFrequency: 5,
+          scoringShortcuts: true,
+          soundEffects: true,
+          vibration: true
+        }
+      },
+      socialProfile: {
+        friends: [],
+        followedUsers: [],
+        followers: [],
+        blockedUsers: [],
+        socialLinks: {}
+      }
     };
 
-    await storageService.saveUserPersistent(user);
+    await storageService.saveUserProfile(user);
+    
     this.currentUser = user;
     
     // CRITICAL: Persist to localStorage immediately
     localStorage.setItem('currentUser', JSON.stringify(user));
     
+    // Load user's groups in background
+    this.loadUserGroups().catch(error => {
+      console.warn('⚠️ Background group loading failed:', error);
+    });
+    
+    console.log('📧 Comprehensive user profile created with email:', email);
     return user;
   }
 
   async signIn(email: string, password: string): Promise<User> {
-    const user = await storageService.getUserByEmail(email);
+    console.log('🔐 Signing in with email:', email);
+    
+    const user = await storageService.getUserProfileByIdentifier(email);
     if (!user) {
-      throw new Error('User not found');
+      throw new Error('No account found with this email');
     }
 
+    if (user.password !== password) {
+      throw new Error('Invalid password');
+    }
+
+    // Update last login immediately
     user.lastLoginAt = Date.now();
-    await storageService.saveUserPersistent(user);
+    
+    // INSTANT UPDATE: Set current user immediately
     this.currentUser = user;
     
-    // CRITICAL: Persist to localStorage immediately
+    // CRITICAL: Persist to localStorage immediately for instant access
     localStorage.setItem('currentUser', JSON.stringify(user));
+    console.log('✅ User session saved to localStorage immediately');
     
-    // Load user's groups
-    await this.loadUserGroups();
+    // Background save to storage service with comprehensive profile
+    storageService.saveUserProfile(user).catch(error => {
+      console.warn('⚠️ Background user profile save failed:', error);
+    });
     
+    // Load user's groups in background
+    this.loadUserGroups().catch(error => {
+      console.warn('⚠️ Background group loading failed:', error);
+    });
+    
+    console.log('🎉 Email sign-in completed for:', user.name);
     return user;
   }
 
@@ -322,6 +519,18 @@ class AuthService {
   getCurrentUser(): User | null {
     // Always return the current user from memory (already restored on startup)
     return this.currentUser;
+  }
+
+  setCurrentUser(user: User | null): void {
+    this.currentUser = user;
+    if (user) {
+      // Persist to localStorage immediately
+      localStorage.setItem('currentUser', JSON.stringify(user));
+      console.log('✅ Current user set and saved to localStorage:', user.name);
+    } else {
+      localStorage.removeItem('currentUser');
+      console.log('✅ Current user cleared from localStorage');
+    }
   }
 
   // Group Management with enhanced persistence
@@ -366,6 +575,41 @@ class AuthService {
     }
     this.currentUser.groupIds.push(group.id);
     await storageService.saveUser(this.currentUser);
+    
+    // CRITICAL: Create a player profile for the group creator
+    const creatorPlayer = {
+      id: `player_${this.currentUser.id}`,
+      name: this.currentUser.name,
+      shortId: this.currentUser.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase(),
+      photoUrl: this.currentUser.photoUrl,
+      isGroupMember: true,
+      isGuest: false,
+      groupIds: [group.id],
+      stats: {
+        matchesPlayed: 0,
+        runsScored: 0,
+        ballsFaced: 0,
+        fours: 0,
+        sixes: 0,
+        fifties: 0,
+        hundreds: 0,
+        highestScore: 0,
+        timesOut: 0,
+        wicketsTaken: 0,
+        ballsBowled: 0,
+        runsConceded: 0,
+        catches: 0,
+        runOuts: 0,
+        motmAwards: 0,
+        ducks: 0,
+        dotBalls: 0,
+        maidenOvers: 0,
+        bestBowlingFigures: '-'
+      }
+    };
+    
+    await storageService.savePlayer(creatorPlayer);
+    console.log('✅ Created player profile for group creator:', creatorPlayer.name);
     
     // CRITICAL: Update localStorage immediately
     localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
@@ -701,7 +945,86 @@ class AuthService {
       isGuest: true,
       createdAt: Date.now(),
       lastLoginAt: Date.now(),
-      groupIds: []
+      groupIds: [],
+      
+      // Initialize complete profile structure
+      profile: {
+        displayName: 'Guest User',
+        playingRole: 'none',
+        battingStyle: 'unknown',
+        bowlingStyle: 'none'
+      },
+      statistics: {
+        totalMatches: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalDraws: 0,
+        totalRuns: 0,
+        totalBallsFaced: 0,
+        highestScore: 0,
+        battingAverage: 0,
+        strikeRate: 0,
+        centuries: 0,
+        halfCenturies: 0,
+        fours: 0,
+        sixes: 0,
+        ducks: 0,
+        totalWickets: 0,
+        totalBallsBowled: 0,
+        totalRunsConceded: 0,
+        bestBowlingFigures: '0/0',
+        bowlingAverage: 0,
+        economyRate: 0,
+        maidenOvers: 0,
+        fiveWicketHauls: 0,
+        catches: 0,
+        runOuts: 0,
+        stumpings: 0,
+        manOfTheMatchAwards: 0,
+        manOfTheSeriesAwards: 0,
+        achievements: [],
+        recentMatches: [],
+        favoriteGroups: [],
+        lastUpdated: Date.now(),
+        performanceRating: 0,
+        consistency: 0
+      },
+      preferences: {
+        theme: 'auto',
+        language: 'en',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        notifications: {
+          matchInvites: true,
+          groupUpdates: true,
+          achievements: true,
+          weeklyStats: false,
+          email: false,
+          sms: false,
+          push: false
+        },
+        privacy: {
+          profileVisibility: 'public',
+          statsVisibility: 'public',
+          contactVisibility: 'friends',
+          allowGroupInvites: true,
+          allowFriendRequests: true
+        },
+        matchSettings: {
+          defaultFormat: 'T20',
+          preferredRole: 'any',
+          autoSaveFrequency: 5,
+          scoringShortcuts: true,
+          soundEffects: true,
+          vibration: true
+        }
+      },
+      socialProfile: {
+        friends: [],
+        followedUsers: [],
+        followers: [],
+        blockedUsers: [],
+        socialLinks: {}
+      }
     };
 
     this.currentUser = guestUser;
@@ -709,6 +1032,65 @@ class AuthService {
     
     console.log('👤 Guest user signed in:', guestUser.name);
     return guestUser;
+  }
+
+  // ENHANCED PROFILE MANAGEMENT METHODS
+
+  // Get complete user cricket profile
+  async getUserCricketProfile(identifier?: string): Promise<any> {
+    const userIdentifier = identifier || this.currentUser?.email || this.currentUser?.phone;
+    if (!userIdentifier) {
+      throw new Error('No user identifier available');
+    }
+
+    console.log('🏏 Loading complete cricket profile...');
+    return await storageService.getUserCricketProfile(userIdentifier);
+  }
+
+  // Update user profile
+  async updateUserProfile(updates: Partial<User>): Promise<void> {
+    if (!this.currentUser) {
+      throw new Error('No user signed in');
+    }
+
+    const updatedUser = { ...this.currentUser, ...updates };
+    await storageService.saveUserProfile(updatedUser);
+    
+    this.currentUser = updatedUser;
+    localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+    
+    console.log('✅ User profile updated successfully');
+  }
+
+  // Update user statistics after match
+  async updateUserStatistics(matchStats: any): Promise<void> {
+    if (!this.currentUser) {
+      throw new Error('No user signed in');
+    }
+
+    await storageService.updateUserStatistics(this.currentUser.id, matchStats);
+    
+    // Refresh current user data
+    const updatedUser = await storageService.getUserProfileByIdentifier(
+      this.currentUser.email || this.currentUser.phone || ''
+    );
+    
+    if (updatedUser) {
+      this.currentUser = updatedUser;
+      localStorage.setItem('currentUser', JSON.stringify(updatedUser));
+    }
+    
+    console.log('📊 User statistics updated successfully');
+  }
+
+  // Export user data
+  async exportUserData(): Promise<string | null> {
+    if (!this.currentUser) {
+      throw new Error('No user signed in');
+    }
+
+    const identifier = this.currentUser.email || this.currentUser.phone || '';
+    return await storageService.exportUserData(identifier);
   }
 }
 

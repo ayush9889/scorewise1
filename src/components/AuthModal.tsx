@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { X, Mail, Lock, User, Phone, Eye, EyeOff, MessageSquare, ArrowLeft, AlertCircle, CheckCircle } from 'lucide-react';
 import { authService } from '../services/authService';
 import { firebaseAuthService } from '../services/firebaseAuthService';
@@ -33,13 +33,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Timer ref for cleanup
+  const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current) {
+        clearInterval(cooldownTimerRef.current);
+      }
+    };
+  }, []);
+
   // Start cooldown timer for resend OTP
   const startResendCooldown = () => {
+    // Clear any existing timer
+    if (cooldownTimerRef.current) {
+      clearInterval(cooldownTimerRef.current);
+    }
+    
     setResendCooldown(30);
-    const timer = setInterval(() => {
+    cooldownTimerRef.current = setInterval(() => {
       setResendCooldown((prev) => {
         if (prev <= 1) {
-          clearInterval(timer);
+          if (cooldownTimerRef.current) {
+            clearInterval(cooldownTimerRef.current);
+            cooldownTimerRef.current = null;
+          }
           return 0;
         }
         return prev - 1;
@@ -53,9 +73,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
 
     try {
+      console.log('🚀 Starting Google Sign-In...');
+      
+      // Start sign-in process
       await firebaseAuthService.signInWithGoogle();
+      
+      console.log('✅ Google Sign-In successful, calling onSuccess...');
+      
+      // Immediate success callback
       onSuccess();
+      
     } catch (err) {
+      console.error('❌ Google Sign-In failed:', err);
       setError(err instanceof Error ? err.message : 'Google sign-in failed');
     } finally {
       setLoading(false);
@@ -67,10 +96,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
 
     try {
+      console.log('🚀 Starting Guest Mode...');
+      
       // Create a guest user
       authService.signInAsGuest();
+      
+      console.log('✅ Guest Mode activated, calling onSuccess...');
+      
+      // Immediate success callback
       onSuccess();
+      
     } catch (err) {
+      console.error('❌ Guest Mode failed:', err);
       setError(err instanceof Error ? err.message : 'Guest mode failed');
     } finally {
       setLoading(false);
@@ -83,13 +120,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
 
     try {
+      console.log(`🚀 Starting ${mode} with email...`);
+      
       if (mode === 'signup') {
         await authService.signUp(email, password, name, phone);
+        console.log('✅ Email sign-up successful');
       } else {
         await authService.signIn(email, password);
+        console.log('✅ Email sign-in successful');
       }
+      
+      // Immediate success callback
       onSuccess();
+      
     } catch (err) {
+      console.error(`❌ Email ${mode} failed:`, err);
       setError(err instanceof Error ? err.message : 'Authentication failed');
     } finally {
       setLoading(false);
@@ -102,31 +147,37 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
 
     try {
+      console.log(`🚀 Starting ${mode} with phone...`);
+      
       if (mode === 'signup') {
         await authService.signUpWithPhone(phone, name);
-        await authService.sendOTP(phone);
-        setOtpSent(true);
-        setShowOtpStep(true);
-        startResendCooldown();
+        console.log('✅ Phone sign-up initiated');
       } else {
         const userExists = await authService.checkUserByPhone(phone);
         if (!userExists) {
           setError('No account found with this phone number. Please sign up first.');
           return;
         }
-        await authService.sendOTP(phone);
-        setOtpSent(true);
-        setShowOtpStep(true);
-        startResendCooldown();
+        console.log('✅ User found, proceeding with OTP');
       }
+      
+      // Send OTP
+      await authService.sendOTP(phone);
+      setOtpSent(true);
+      setShowOtpStep(true);
+      startResendCooldown();
+      
+      console.log('✅ OTP sent successfully');
+      
     } catch (err) {
-              const errorMessage = err instanceof Error ? err.message : 'Failed to send OTP';
+      console.error('❌ Phone auth failed:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to send OTP';
         
-        if (errorMessage.includes('reCAPTCHA') || errorMessage.includes('invalid-phone-number')) {
-          setError(errorMessage + '\n\nTip: Make sure your phone number includes country code (e.g., +1234567890).');
-        } else {
-          setError(errorMessage);
-        }
+      if (errorMessage.includes('reCAPTCHA') || errorMessage.includes('invalid-phone-number')) {
+        setError(errorMessage + '\n\nTip: Make sure your phone number includes country code (e.g., +1234567890).');
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
@@ -138,14 +189,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError('');
 
     try {
+      console.log('🚀 Verifying OTP...');
+      
       const isValid = await authService.verifyOTP(phone, otp);
       if (isValid) {
         await authService.signInWithPhone(phone);
+        console.log('✅ OTP verification and sign-in successful');
+        
+        // Immediate success callback
         onSuccess();
+        
       } else {
         setError('Invalid OTP. Please try again.');
       }
     } catch (err) {
+      console.error('❌ OTP verification failed:', err);
       setError(err instanceof Error ? err.message : 'OTP verification failed');
     } finally {
       setLoading(false);
@@ -356,12 +414,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <button
                   onClick={handleGoogleSignIn}
                   disabled={loading}
-                  className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  className="w-full bg-white border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-50 hover:border-gray-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   {loading ? (
                     <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-gray-700 mr-2"></div>
-                      Signing in...
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600 mr-2"></div>
+                      <span className="text-blue-600 font-medium">Signing in...</span>
                     </div>
                   ) : (
                     <>
@@ -371,7 +429,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
                         <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
                       </svg>
-                      Continue with Google
+                      <span className="font-semibold">Continue with Google</span>
                     </>
                   )}
                 </button>
@@ -638,7 +696,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 <button
                   onClick={handleGuestMode}
                   disabled={loading}
-                  className="w-full bg-gray-100 border-2 border-gray-300 text-gray-700 py-3 px-4 rounded-lg font-semibold hover:bg-gray-200 hover:border-gray-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  className="w-full bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 text-blue-700 py-3 px-4 rounded-lg font-semibold hover:from-blue-100 hover:to-indigo-100 hover:border-blue-400 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   {loading ? (
                     <div className="flex items-center justify-center">

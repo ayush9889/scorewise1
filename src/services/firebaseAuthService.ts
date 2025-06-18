@@ -47,7 +47,7 @@ class FirebaseAuthService {
       let user = await storageService.getUserByEmail(firebaseUser.email || '');
       
       if (!user) {
-        // Create new user from Firebase data
+        // Create new user from Firebase data with complete profile structure
         user = {
           id: firebaseUser.uid,
           email: firebaseUser.email || '',
@@ -57,21 +57,104 @@ class FirebaseAuthService {
           isVerified: firebaseUser.emailVerified,
           createdAt: Date.now(),
           lastLoginAt: Date.now(),
-          groupIds: []
+          groupIds: [],
+          
+          // Initialize complete profile structure
+          profile: {
+            displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+            playingRole: 'none',
+            battingStyle: 'unknown',
+            bowlingStyle: 'none'
+          },
+          statistics: {
+            totalMatches: 0,
+            totalWins: 0,
+            totalLosses: 0,
+            totalDraws: 0,
+            totalRuns: 0,
+            totalBallsFaced: 0,
+            highestScore: 0,
+            battingAverage: 0,
+            strikeRate: 0,
+            centuries: 0,
+            halfCenturies: 0,
+            fours: 0,
+            sixes: 0,
+            ducks: 0,
+            totalWickets: 0,
+            totalBallsBowled: 0,
+            totalRunsConceded: 0,
+            bestBowlingFigures: '0/0',
+            bowlingAverage: 0,
+            economyRate: 0,
+            maidenOvers: 0,
+            fiveWicketHauls: 0,
+            catches: 0,
+            runOuts: 0,
+            stumpings: 0,
+            manOfTheMatchAwards: 0,
+            manOfTheSeriesAwards: 0,
+            achievements: [],
+            recentMatches: [],
+            favoriteGroups: [],
+            lastUpdated: Date.now(),
+            performanceRating: 0,
+            consistency: 0
+          },
+          preferences: {
+            theme: 'auto',
+            language: 'en',
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            notifications: {
+              matchInvites: true,
+              groupUpdates: true,
+              achievements: true,
+              weeklyStats: false,
+              email: true,
+              sms: false,
+              push: true
+            },
+            privacy: {
+              profileVisibility: 'public',
+              statsVisibility: 'public',
+              contactVisibility: 'friends',
+              allowGroupInvites: true,
+              allowFriendRequests: true
+            },
+            matchSettings: {
+              defaultFormat: 'T20',
+              preferredRole: 'any',
+              autoSaveFrequency: 5,
+              scoringShortcuts: true,
+              soundEffects: true,
+              vibration: true
+            }
+          },
+          socialProfile: {
+            friends: [],
+            followedUsers: [],
+            followers: [],
+            blockedUsers: [],
+            socialLinks: {}
+          }
         };
         
-        // Save new user to storage
-        await storageService.saveUser(user);
-        console.log('✅ New Firebase user created in storage:', user.name);
+        // Save complete user profile to storage
+        await storageService.saveUserProfile(user);
+        console.log('✅ New Firebase user created with complete profile in storage:', user.name);
       } else {
-        // Update existing user with latest Firebase data
+        // Update existing user with latest Firebase data and ensure complete profile
         user.lastLoginAt = Date.now();
         user.isVerified = firebaseUser.emailVerified;
         user.photoUrl = firebaseUser.photoURL || user.photoUrl;
         user.name = firebaseUser.displayName || user.name;
         
-        await storageService.saveUser(user);
-        console.log('✅ Existing user updated from Firebase:', user.name);
+        // Ensure complete profile structure exists for existing users
+        const completeUser = await storageService.ensureCompleteUserProfile(user);
+        
+        await storageService.saveUserProfile(completeUser);
+        console.log('✅ Existing user updated with complete profile from Firebase:', completeUser.name);
+        user = completeUser;
       }
       
       this.currentUser = user;
