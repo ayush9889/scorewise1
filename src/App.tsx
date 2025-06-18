@@ -37,6 +37,14 @@ function App() {
   useEffect(() => {
     initializeApp();
     
+    // CRITICAL FIX: Add timeout to prevent infinite loading
+    const initTimeout = setTimeout(() => {
+      if (!isInitialized) {
+        console.warn('⚠️ App initialization taking too long, forcing completion');
+        setIsInitialized(true);
+      }
+    }, 10000); // 10 second timeout
+    
     // Cleanup function to ensure final backup when app closes
     const handleBeforeUnload = async () => {
       try {
@@ -54,6 +62,7 @@ function App() {
     
     // Cleanup function
     return () => {
+      clearTimeout(initTimeout);
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
       storageService.stopAutoBackup();

@@ -61,6 +61,8 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   const [backgroundSaves, setBackgroundSaves] = useState(0);
   const [lastCloudSave, setLastCloudSave] = useState<Date | null>(null);
   const [autoSaveInterval, setAutoSaveInterval] = useState<NodeJS.Timeout | null>(null);
+  const [bowlerSelectionSuccess, setBowlerSelectionSuccess] = useState<string | null>(null);
+  const [bowlerSelectionInProgress, setBowlerSelectionInProgress] = useState(false);
 
   // Add new state for players
   const [allPlayers, setAllPlayers] = useState<Player[]>([]);
@@ -125,7 +127,10 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   // Auto-save functionality
   useEffect(() => {
     const saveMatchWithRetry = async (retryAttempt = 0) => {
-      if (cloudSyncDisabled) return;
+      if (cloudSyncDisabled) {
+        console.log('🚫 Auto-save disabled during transition');
+        return;
+      }
       
       try {
         setIsSaving(true);
@@ -134,8 +139,8 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         // Save to local storage first (always works)
         await storageService.saveMatchState(match);
         
-        // Try cloud save if online
-        if (isOnline) {
+        // Try cloud save if online and not during transition
+        if (isOnline && !showInningsSetup && !showInningsBreak) {
           await cloudStorageService.saveMatch(match);
           setLastCloudSave(new Date());
           setRetryCount(0);
@@ -159,14 +164,21 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       }
     };
 
-    // Debounced auto-save
+    // Skip auto-save during transitions to prevent loading issues
+    if (showInningsSetup || showInningsBreak || cloudSyncDisabled) {
+      console.log('⏸️ Skipping auto-save during transition');
+      return;
+    }
+
+    // Debounced auto-save with longer delay during critical operations
     if (autoSaveInterval) {
       clearTimeout(autoSaveInterval);
     }
     
+    const saveDelay = (showBowlerSelector || showNewBatsmanSelector) ? 5000 : 2000;
     const newInterval = setTimeout(() => {
       saveMatchWithRetry();
-    }, 2000); // Save 2 seconds after last change
+    }, saveDelay);
     
     setAutoSaveInterval(newInterval);
 
@@ -175,7 +187,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         clearTimeout(newInterval);
       }
     };
-  }, [match, isOnline, cloudSyncDisabled]);
+  }, [match, isOnline, cloudSyncDisabled, showInningsSetup, showInningsBreak, showBowlerSelector, showNewBatsmanSelector]);
 
   // Manual save function
   const handleManualSave = async () => {
@@ -283,6 +295,8 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   };
 
   const handleInningsBreakContinue = () => {
+    console.log('🔄 Starting second innings transition...');
+    
     const updatedMatch = { ...match };
     updatedMatch.isSecondInnings = true;
     
@@ -307,13 +321,20 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
     updatedMatch.currentNonStriker = undefined;
     updatedMatch.currentBowler = undefined;
     
+    // CRITICAL FIX: Disable auto-save temporarily during transition to prevent infinite loading
+    setCloudSyncDisabled(true);
+    
     setMatch(updatedMatch);
     setShowInningsBreak(false);
     setShowInningsSetup(true);
     setIsSecondInningsSetup(true);
+    
+    console.log('✅ Second innings transition setup complete');
   };
 
-  const handleInningsSetup = (striker: Player, nonStriker: Player, bowler: Player) => {
+  const handleInningsSetup = async (striker: Player, nonStriker: Player, bowler: Player) => {
+    console.log('🏏 Setting up second innings players...');
+    
     const updatedMatch = { ...match };
     updatedMatch.currentStriker = striker;
     updatedMatch.currentNonStriker = nonStriker;
@@ -330,9 +351,22 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       updatedMatch.bowlingTeam.players.push(bowler);
     }
 
+    // Save the fully setup match state
+    try {
+      await storageService.saveMatchState(updatedMatch);
+      console.log('✅ Second innings setup saved to local storage');
+    } catch (error) {
+      console.error('❌ Failed to save second innings setup:', error);
+    }
+
     setMatch(updatedMatch);
     setShowInningsSetup(false);
     setIsSecondInningsSetup(false);
+    
+    // CRITICAL FIX: Re-enable auto-save after setup is complete
+    setCloudSyncDisabled(false);
+    
+    console.log('🎉 Second innings ready to start!');
   };
 
   const handleMatchComplete = async () => {
@@ -389,7 +423,8 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
     console.log(`🔍 Current bowler: ${updatedMatch.currentBowler?.name || 'None'}`);
     console.log(`🔍 Current state - showBowlerSelector: ${showBowlerSelector}, needsBowlerChange: ${needsBowlerChange}`);
     
-    if (wasOverComplete && !isInningsComplete) {
+    // CRITICAL: Only trigger bowler change if NOT already showing selector AND NOT already needing change
+    if (wasOverComplete && !isInningsComplete && !showBowlerSelector && !needsBowlerChange) {
       console.log(`🚨 OVER ${updatedMatch.battingTeam.overs} COMPLETED - BOWLER CHANGE MANDATORY!`);
       
       setOverCompleteMessage(`Over ${updatedMatch.battingTeam.overs} completed!`);
@@ -410,10 +445,12 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         console.log(`✅ Showing bowler selector for over ${nextOver}`);
         // Force the modal to show with a slight delay to ensure state updates
         setTimeout(() => {
-        setShowBowlerSelector(true);
+          setShowBowlerSelector(true);
           console.log(`🔍 FORCED BOWLER SELECTOR SHOW - showBowlerSelector: true`);
         }, 100);
       }
+    } else if (wasOverComplete && !isInningsComplete) {
+      console.log(`⚠️ SKIPPING BOWLER SELECTOR - Already showing: ${showBowlerSelector}, Already needing: ${needsBowlerChange}`);
     }
 
     // Check for wicket - need new batsman
@@ -440,6 +477,14 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
 
   const handleBowlerChange = (newBowler: Player) => {
     console.log(`\n🏏 ATTEMPTING BOWLER CHANGE TO: ${newBowler.name}`);
+    
+    // Prevent double-clicking
+    if (bowlerSelectionInProgress) {
+      console.log('🚫 BOWLER SELECTION ALREADY IN PROGRESS - IGNORING');
+      return;
+    }
+    
+    setBowlerSelectionInProgress(true);
     
     try {
     const updatedMatch = { ...match };
@@ -468,20 +513,45 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       console.log(`➕ Added ${newBowler.name} to bowling team`);
     }
     
-      // Update match state first
-    setMatch(updatedMatch);
-    
-    // AUTO-CLOSE: Close all modals automatically after selection
+    // AUTO-CLOSE FIRST: Close all modals immediately to prevent double selection
     setShowBowlerSelector(false);
     setNeedsBowlerChange(false);
     setOverCompleteMessage(null);
     
+    // Then update match state
+    setMatch(updatedMatch);
+    
     console.log(`✅ BOWLER CHANGE COMPLETE - READY FOR OVER ${nextOver}`);
+    
+    // Show success notification
+    const successMessage = `🏏 ${newBowler.name} selected for over ${nextOver}`;
+    setBowlerSelectionSuccess(successMessage);
+    
+    // Auto-hide success message after 3 seconds
+    setTimeout(() => {
+      setBowlerSelectionSuccess(null);
+    }, 3000);
+    
+    // Save the match state to prevent data loss
+    setTimeout(() => {
+      storageService.saveMatchState(updatedMatch).catch(error => {
+        console.error('Failed to save match after bowler change:', error);
+      });
+    }, 100);
+    
+    // Reset the selection in progress flag
+    setTimeout(() => {
+      setBowlerSelectionInProgress(false);
+    }, 1000);
       
     } catch (error) {
       console.error('Error during bowler change:', error);
-      // Don't let the error prevent the bowler change
-      alert('Bowler change completed successfully, but there was a minor sync issue. The match will continue normally.');
+      // Close modals even if there's an error
+      setShowBowlerSelector(false);
+      setNeedsBowlerChange(false);
+      setOverCompleteMessage(null);
+      setBowlerSelectionInProgress(false);
+      alert('Bowler change completed, but there was a minor issue. The match will continue normally.');
     }
   };
 
@@ -744,6 +814,16 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         </div>
       </div>
 
+      {/* Bowler Selection Success Notification */}
+      {bowlerSelectionSuccess && (
+        <div className="bg-green-100 border-l-4 border-green-500 p-3 m-2">
+          <div className="flex items-center">
+            <div className="w-5 h-5 text-green-600 mr-2">✓</div>
+            <p className="text-green-700 text-sm font-bold">{bowlerSelectionSuccess}</p>
+          </div>
+        </div>
+      )}
+
       {/* CRITICAL: Over Complete Message with MANDATORY Bowler Change */}
       {overCompleteMessage && needsBowlerChange && (
         <div className="bg-red-100 border-l-4 border-red-500 p-3 m-2">
@@ -942,7 +1022,12 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
                             console.log(`🎯 GROUP BOWLER SELECTED: ${bowler.name}`);
                             handleBowlerChange(bowler);
                           }}
-                          className="w-full p-3 bg-purple-50 hover:bg-purple-100 active:bg-purple-200 rounded-lg border border-purple-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-left"
+                          disabled={bowlerSelectionInProgress}
+                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
+                            bowlerSelectionInProgress 
+                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
+                              : 'bg-purple-50 hover:bg-purple-100 active:bg-purple-200 border-purple-200 transform hover:scale-[1.02] active:scale-[0.98]'
+                          }`}
                         >
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold">
@@ -979,7 +1064,12 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
                             console.log(`🎯 GUEST BOWLER SELECTED: ${bowler.name}`);
                             handleBowlerChange(bowler);
                           }}
-                          className="w-full p-3 bg-orange-50 hover:bg-orange-100 active:bg-orange-200 rounded-lg border border-orange-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-left"
+                          disabled={bowlerSelectionInProgress}
+                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
+                            bowlerSelectionInProgress 
+                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
+                              : 'bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border-orange-200 transform hover:scale-[1.02] active:scale-[0.98]'
+                          }`}
                         >
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center text-white font-semibold">
@@ -1016,7 +1106,12 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
                             console.log(`🎯 OTHER BOWLER SELECTED: ${bowler.name}`);
                             handleBowlerChange(bowler);
                           }}
-                          className="w-full p-3 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 rounded-lg border border-blue-200 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] text-left"
+                          disabled={bowlerSelectionInProgress}
+                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
+                            bowlerSelectionInProgress 
+                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
+                              : 'bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border-blue-200 transform hover:scale-[1.02] active:scale-[0.98]'
+                          }`}
                         >
                           <div className="flex items-center space-x-3">
                             <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">

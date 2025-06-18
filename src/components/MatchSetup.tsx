@@ -476,16 +476,78 @@ export const MatchSetup: React.FC<MatchSetupProps> = ({ onMatchStart, isStandalo
               
               {selectedFormat.name === 'Custom' && (
                 <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
-                  <label className="block text-sm font-medium text-purple-200 mb-3">Custom Overs</label>
-                  <input
-                    type="number"
-                    value={customOvers}
-                    onChange={(e) => setCustomOvers(Math.max(1, parseInt(e.target.value) || 1))}
-                    className="w-full px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    placeholder="Number of overs"
-                    min="1"
-                    max="50"
-                  />
+                  <label className="block text-sm font-medium text-purple-200 mb-3">
+                    <Clock className="w-4 h-4 inline mr-2" />
+                    Custom Overs (1-50)
+                  </label>
+                  <div className="flex items-center space-x-4">
+                    <input
+                      type="number"
+                      value={customOvers || ''}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (value === '') {
+                          setCustomOvers(1);
+                        } else {
+                          const numValue = parseInt(value);
+                          if (numValue >= 1 && numValue <= 50) {
+                            setCustomOvers(numValue);
+                          } else if (numValue > 50) {
+                            setCustomOvers(50);
+                          } else if (numValue < 1) {
+                            setCustomOvers(1);
+                          }
+                        }
+                      }}
+                      onBlur={() => {
+                        if (!customOvers || customOvers < 1) {
+                          setCustomOvers(1);
+                        }
+                      }}
+                      className="flex-1 px-4 py-3 bg-white/10 backdrop-blur-sm border border-white/20 rounded-xl text-white text-center text-lg font-bold focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-300"
+                      placeholder="15"
+                      min="1"
+                      max="50"
+                    />
+                    <div className="flex space-x-2">
+                      <button
+                        type="button"
+                        onClick={() => setCustomOvers(Math.max(1, customOvers - 1))}
+                        className="p-2 bg-purple-500/20 hover:bg-purple-500/40 text-white rounded-lg transition-colors"
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCustomOvers(Math.min(50, customOvers + 1))}
+                        className="p-2 bg-purple-500/20 hover:bg-purple-500/40 text-white rounded-lg transition-colors"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-center">
+                    <span className="text-purple-300 text-sm">
+                      Match Duration: Approximately {Math.round(customOvers * 4)} minutes
+                    </span>
+                  </div>
+                  {/* Quick Select Buttons */}
+                  <div className="mt-4 flex flex-wrap gap-2 justify-center">
+                    {[5, 10, 15, 20, 25, 30].map((overs) => (
+                      <button
+                        key={overs}
+                        type="button"
+                        onClick={() => setCustomOvers(overs)}
+                        className={`px-3 py-1 rounded-lg text-sm transition-colors ${
+                          customOvers === overs
+                            ? 'bg-purple-500 text-white'
+                            : 'bg-white/10 text-purple-200 hover:bg-white/20'
+                        }`}
+                      >
+                        {overs}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

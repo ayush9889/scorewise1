@@ -37,17 +37,58 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
       setStriker(null);
       setNonStriker(null);
       setBowler(null);
+      
+      // CRITICAL FIX: Add timeout to prevent infinite loading
+      const loadTimeout = setTimeout(() => {
+        if (loading) {
+          console.warn('⚠️ Player loading taking too long, using cached players');
+          setLoading(false);
+        }
+      }, 5000); // 5 second timeout
+      
+      return () => clearTimeout(loadTimeout);
     }
-  }, [isOpen]);
+  }, [isOpen, loading]);
 
   const loadPlayers = async () => {
     try {
+      setLoading(true);
+      console.log('🔄 Loading players for innings setup...');
+      
       const players = await storageService.getAllPlayers();
+      console.log(`✅ Loaded ${players.length} players`);
       setAllPlayers(players);
     } catch (error) {
-      console.error('Failed to load players:', error);
+      console.error('❌ Failed to load players:', error);
+      
+      // Fallback: try to get players from match teams
+      const fallbackPlayers: Player[] = [];
+      if (match.team1?.players) {
+        fallbackPlayers.push(...match.team1.players);
+      }
+      if (match.team2?.players) {
+        fallbackPlayers.push(...match.team2.players);
+      }
+      
+      if (fallbackPlayers.length > 0) {
+        console.log(`🔄 Using fallback players from teams: ${fallbackPlayers.length}`);
+        setAllPlayers(fallbackPlayers);
+      } else {
+        console.warn('⚠️ No players available, creating default players');
+        // Create some basic placeholder players as last resort
+        const defaultPlayers: Player[] = [
+          { id: 'default_1', name: 'Player 1', shortId: 'P1' },
+          { id: 'default_2', name: 'Player 2', shortId: 'P2' },
+          { id: 'default_3', name: 'Player 3', shortId: 'P3' },
+          { id: 'default_4', name: 'Player 4', shortId: 'P4' },
+          { id: 'default_5', name: 'Player 5', shortId: 'P5' },
+          { id: 'default_6', name: 'Player 6', shortId: 'P6' }
+        ];
+        setAllPlayers(defaultPlayers);
+      }
     } finally {
       setLoading(false);
+      console.log('✅ Player loading complete');
     }
   };
 
