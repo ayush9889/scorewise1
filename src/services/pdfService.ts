@@ -98,26 +98,66 @@ export class PDFService {
     return y + 5;
   }
 
+  // Helper method to get correct team for each innings based on toss
+  private static getInningsTeams(match: Match, innings: number): { battingTeam: any, bowlingTeam: any } {
+    // Determine who batted first based on toss
+    const tossWinnerBattedFirst = match.tossDecision === 'bat';
+    const team1WonToss = match.tossWinner === match.team1.name;
+    
+    let firstInningsBattingTeam, firstInningsBowlingTeam;
+    
+    if ((team1WonToss && tossWinnerBattedFirst) || (!team1WonToss && !tossWinnerBattedFirst)) {
+      // Team 1 batted first
+      firstInningsBattingTeam = match.team1;
+      firstInningsBowlingTeam = match.team2;
+    } else {
+      // Team 2 batted first
+      firstInningsBattingTeam = match.team2;
+      firstInningsBowlingTeam = match.team1;
+    }
+    
+    if (innings === 1) {
+      return {
+        battingTeam: firstInningsBattingTeam,
+        bowlingTeam: firstInningsBowlingTeam
+      };
+    } else {
+      return {
+        battingTeam: firstInningsBowlingTeam,
+        bowlingTeam: firstInningsBattingTeam
+      };
+    }
+  }
+
   private static addInningsSection(doc: jsPDF, match: Match, innings: number, y: number): number {
-    const team = innings === 1 ? match.team1 : match.team2;
-    const bowlingTeam = innings === 1 ? match.team2 : match.team1;
+    const { battingTeam, bowlingTeam } = this.getInningsTeams(match, innings);
+    
+    // Debug logs
+    console.log(`🏏 PDF Generation - Innings ${innings}:`, {
+      battingTeam: battingTeam.name,
+      bowlingTeam: bowlingTeam.name,
+      totalBalls: match.balls.length,
+      ballsForInnings: match.balls.filter(b => this.getBallInnings(b, match) === innings).length
+    });
     
     // Innings header
     doc.setFillColor(63, 81, 181);
     doc.setTextColor(255, 255, 255);
     doc.rect(14, y, 182, 8, 'F');
     doc.setFontSize(11);
-    doc.text(`${team.name} - ${innings === 1 ? '1st' : '2nd'} Innings`, 16, y + 6);
+    doc.text(`${battingTeam.name} - ${innings === 1 ? '1st' : '2nd'} Innings`, 16, y + 6);
     
     // Total score
-    const runRate = team.overs > 0 ? ((team.score / (team.overs + team.balls / 6)) || 0).toFixed(2) : '0.00';
-    doc.text(`${team.score}/${team.wickets} (${team.overs}.${team.balls} overs, RR: ${runRate})`, 
+    const runRate = battingTeam.overs > 0 ? ((battingTeam.score / (battingTeam.overs + battingTeam.balls / 6)) || 0).toFixed(2) : '0.00';
+    doc.text(`${battingTeam.score}/${battingTeam.wickets} (${battingTeam.overs}.${battingTeam.balls} overs, RR: ${runRate})`, 
              190, y + 6, { align: 'right' });
     
     y += 12;
 
     // Batting table
-    const battingData = this.prepareBattingData(match, team, innings);
+    const battingData = this.prepareBattingData(match, battingTeam, innings);
+    console.log(`🏏 Batting data for ${battingTeam.name} in innings ${innings}:`, battingData.length, 'players');
+    
     if (battingData.length > 0) {
       autoTable(doc, {
         startY: y,
@@ -142,25 +182,31 @@ export class PDFService {
         }
       });
       y = (doc as any).lastAutoTable.finalY + 3;
+    } else {
+      // Show message if no batting data
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      doc.text('No batting data available for this innings', 16, y + 10);
+      y += 15;
     }
 
     // Extras and Total
     doc.setFontSize(9);
     doc.setTextColor(0, 0, 0);
-    const extras = team.extras;
+    const extras = battingTeam.extras;
     const totalExtras = extras.byes + extras.legByes + extras.wides + extras.noBalls;
     doc.text(`Extras: ${totalExtras} (b ${extras.byes}, lb ${extras.legByes}, w ${extras.wides}, nb ${extras.noBalls})`, 16, y + 3);
     y += 8;
 
     doc.setFontSize(10);
-    doc.text(`Total: ${team.score}/${team.wickets} (${team.overs}.${team.balls} overs) RR: ${runRate}`, 16, y + 3);
+    doc.text(`Total: ${battingTeam.score}/${battingTeam.wickets} (${battingTeam.overs}.${battingTeam.balls} overs) RR: ${runRate}`, 16, y + 3);
     y += 8;
 
     // Fall of wickets
-    y = this.addFallOfWickets(doc, match, team, innings, y);
+    y = this.addFallOfWickets(doc, match, battingTeam, innings, y);
 
     // Partnerships
-    y = this.addPartnerships(doc, match, team, innings, y);
+    y = this.addPartnerships(doc, match, battingTeam, innings, y);
 
     // Bowling figures
     y = this.addBowlingFigures(doc, match, bowlingTeam, innings, y);
@@ -168,13 +214,38 @@ export class PDFService {
     return y;
   }
 
-  private static prepareBattingData(match: Match, team: any, innings: number): any[][] {
+  // Enhanced method to determine which innings a ball belongs to
+  private static getBallInnings(ball: any, match: Match): number {
+    // First check if innings property is set directly
+    if (ball.innings) {
+      return ball.innings;
+    }
+    
+    // Fallback: use battingTeamId logic if available
+    if (ball.battingTeamId) {
+      // We need to figure out which team had which innings based on toss
+      const { battingTeam: firstInningsBattingTeam } = this.getInningsTeams(match, 1);
+      return ball.battingTeamId === firstInningsBattingTeam.name ? 1 : 2;
+    }
+    
+    // Final fallback: determine by striker's team and toss decision
+    const { battingTeam: firstInningsBattingTeam } = this.getInningsTeams(match, 1);
+    const strikerIsFirstInningsTeam = firstInningsBattingTeam.players.some(p => p.id === ball.striker.id);
+    
+    return strikerIsFirstInningsTeam ? 1 : 2;
+  }
+
+  private static prepareBattingData(match: Match, battingTeam: any, innings: number): any[][] {
     const battingData: any[][] = [];
     
-    team.players.forEach((player: any) => {
-      const playerBalls = match.balls.filter((b: any) => 
-        b.striker.id === player.id && b.innings === innings
-      );
+    // Get all balls for this innings
+    const inningsBalls = match.balls.filter(b => this.getBallInnings(b, match) === innings);
+    console.log(`🏏 Total balls in innings ${innings}:`, inningsBalls.length);
+    
+    battingTeam.players.forEach((player: any) => {
+      const playerBalls = inningsBalls.filter((b: any) => b.striker.id === player.id);
+      
+      console.log(`🏏 ${player.name}: ${playerBalls.length} balls faced in innings ${innings}`);
       
       // Only include players who faced at least one ball
       if (playerBalls.length === 0) return;
@@ -212,8 +283,10 @@ export class PDFService {
     return battingData;
   }
 
-  private static addFallOfWickets(doc: jsPDF, match: Match, team: any, innings: number, y: number): number {
-    const fallOfWickets = this.calculateFallOfWickets(match, team, innings);
+  private static addFallOfWickets(doc: jsPDF, match: Match, battingTeam: any, innings: number, y: number): number {
+    const fallOfWickets = this.calculateFallOfWickets(match, battingTeam, innings);
+    
+    console.log(`🏏 Fall of wickets for ${battingTeam.name} innings ${innings}:`, fallOfWickets.length);
     
     if (fallOfWickets.length === 0) return y + 3;
 
@@ -243,8 +316,10 @@ export class PDFService {
     return y + 3;
   }
 
-  private static addPartnerships(doc: jsPDF, match: Match, team: any, innings: number, y: number): number {
-    const partnerships = this.calculatePartnerships(match, team, innings);
+  private static addPartnerships(doc: jsPDF, match: Match, battingTeam: any, innings: number, y: number): number {
+    const partnerships = this.calculatePartnerships(match, battingTeam, innings);
+    
+    console.log(`🏏 Partnerships for ${battingTeam.name} innings ${innings}:`, partnerships.length);
     
     if (partnerships.length === 0) return y + 3;
 
@@ -262,11 +337,11 @@ export class PDFService {
     return y + 3;
   }
 
-  private static calculatePartnerships(match: Match, team: any, innings: number): any[] {
+  private static calculatePartnerships(match: Match, battingTeam: any, innings: number): any[] {
     const partnerships: any[] = [];
     const teamBalls = match.balls.filter((b: any) => 
-      b.innings === innings && 
-      team.players.some((p: any) => p.id === b.striker.id)
+      this.getBallInnings(b, match) === innings && 
+      battingTeam.players.some((p: any) => p.id === b.striker.id)
     );
 
     if (teamBalls.length === 0) return partnerships;
@@ -316,13 +391,13 @@ export class PDFService {
     return partnerships;
   }
 
-  private static calculateFallOfWickets(match: Match, team: any, innings: number): any[] {
+  private static calculateFallOfWickets(match: Match, battingTeam: any, innings: number): any[] {
     const fallOfWickets: any[] = [];
     let wicketCount = 0;
 
     match.balls.forEach((ball: any) => {
-      if (ball.innings === innings && ball.isWicket && 
-          team.players.some((p: any) => p.id === ball.striker.id)) {
+      if (this.getBallInnings(ball, match) === innings && ball.isWicket && 
+          battingTeam.players.some((p: any) => p.id === ball.striker.id)) {
         wicketCount++;
         const overNumber = `${ball.overNumber}.${((ball.ballNumber - 1) % 6) + 1}`;
         
@@ -343,7 +418,7 @@ export class PDFService {
     let score = 0;
     
     for (const ball of match.balls) {
-      if (ball.innings === innings && 
+      if (this.getBallInnings(ball, match) === innings && 
           (ball.ballNumber < wicketBall.ballNumber || 
            (ball.ballNumber === wicketBall.ballNumber && ball.id === wicketBall.id))) {
         score += ball.runs;
@@ -357,7 +432,15 @@ export class PDFService {
   private static addBowlingFigures(doc: jsPDF, match: Match, bowlingTeam: any, innings: number, y: number): number {
     const bowlingData = this.prepareBowlingData(match, bowlingTeam, innings);
     
-    if (bowlingData.length === 0) return y;
+    console.log(`🏏 Bowling data for ${bowlingTeam.name} in innings ${innings}:`, bowlingData.length, 'bowlers');
+    
+    if (bowlingData.length === 0) {
+      // Show message if no bowling data
+      doc.setFontSize(9);
+      doc.setTextColor(100, 100, 100);
+      doc.text('No bowling data available for this innings', 16, y + 10);
+      return y + 15;
+    }
 
     y += 5;
 
@@ -392,10 +475,14 @@ export class PDFService {
   private static prepareBowlingData(match: Match, bowlingTeam: any, innings: number): any[][] {
     const bowlingData: any[][] = [];
     
+    // Get all balls for this innings
+    const inningsBalls = match.balls.filter(b => this.getBallInnings(b, match) === innings);
+    console.log(`🏏 Total balls in innings ${innings} for bowling:`, inningsBalls.length);
+    
     bowlingTeam.players.forEach((player: any) => {
-      const playerBalls = match.balls.filter((b: any) => 
-        b.bowler.id === player.id && b.innings === innings
-      );
+      const playerBalls = inningsBalls.filter((b: any) => b.bowler.id === player.id);
+      
+      console.log(`🏏 ${player.name}: ${playerBalls.length} balls bowled in innings ${innings}`);
       
       // Only include players who bowled at least one ball
       if (playerBalls.length === 0) return;
@@ -577,7 +664,7 @@ export class PDFService {
 
   private static getDismissalInfo(match: Match, player: any, innings: number): string {
     const wicketBall = match.balls.find(b => 
-      b.isWicket && b.striker.id === player.id && b.innings === innings
+      b.isWicket && b.striker.id === player.id && this.getBallInnings(b, match) === innings
     );
     
     if (!wicketBall) return 'not out';
@@ -588,15 +675,15 @@ export class PDFService {
   private static getWicketType(ball: any): string {
     switch (ball.wicketType) {
       case 'caught':
-        return `c ${ball.wicketFielder?.name || ''} b ${ball.bowler.name}`;
+        return `c ${ball.wicketFielder?.name || ball.fielder?.name || ''} b ${ball.bowler.name}`;
       case 'bowled':
         return `b ${ball.bowler.name}`;
       case 'lbw':
         return `lbw b ${ball.bowler.name}`;
       case 'run_out':
-        return `run out (${ball.wicketFielder?.name || ''})`;
+        return `run out (${ball.wicketFielder?.name || ball.fielder?.name || ''})`;
       case 'stumped':
-        return `st ${ball.wicketFielder?.name || ''} b ${ball.bowler.name}`;
+        return `st ${ball.wicketFielder?.name || ball.fielder?.name || ''} b ${ball.bowler.name}`;
       case 'hit_wicket':
         return `hit wicket b ${ball.bowler.name}`;
       default:
