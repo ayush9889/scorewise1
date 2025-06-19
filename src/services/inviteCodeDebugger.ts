@@ -18,111 +18,103 @@ export class InviteCodeDebugger {
       allGroups.forEach((group, index) => {
         console.log(`Group ${index + 1}:`, {
           name: group.name,
-          id: group.id,
           inviteCode: group.inviteCode,
-          matches: group.inviteCode === cleanCode,
-          inviteCodeLength: group.inviteCode?.length || 0
+          id: group.id,
+          createdBy: group.createdBy,
+          isMatch: group.inviteCode === cleanCode ? '✅ MATCH!' : '❌ no match'
         });
       });
       
-      // 2. Try direct database lookup
-      const foundGroup = await storageService.getGroupByInviteCode(cleanCode);
-      console.log('📊 Direct lookup result:', foundGroup ? foundGroup.name : 'NOT FOUND');
+      // 2. Try direct lookup
+      const directResult = await storageService.getGroupByInviteCode(cleanCode);
+      console.log('📊 Direct lookup result:', directResult ? `FOUND: ${directResult.name}` : 'NOT FOUND');
       
-      // 3. Manual search
-      const manualMatch = allGroups.find(g => g.inviteCode === cleanCode);
-      console.log('📊 Manual search result:', manualMatch ? manualMatch.name : 'NOT FOUND');
+      // 3. Try manual search
+      const manualResult = allGroups.find(g => g.inviteCode === cleanCode);
+      console.log('📊 Manual search result:', manualResult ? `FOUND: ${manualResult.name}` : 'NOT FOUND');
       
-      // 4. Check current user
+      // 4. Check current user state
       const currentUser = authService.getCurrentUser();
-      console.log('👤 Current user:', currentUser ? currentUser.name : 'NOT LOGGED IN');
+      console.log('👤 Current user:', currentUser?.name || 'Not logged in');
       
       // 5. Check localStorage backup
-      const backupGroups = JSON.parse(localStorage.getItem('userGroups') || '[]');
+      const backupGroups = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith('group_backup_')) {
+          try {
+            const group = JSON.parse(localStorage.getItem(key) || '{}');
+            backupGroups.push(group);
+          } catch (e) {
+            console.warn('Failed to parse backup group:', key);
+          }
+        }
+      }
       console.log('💾 Backup groups count:', backupGroups.length);
       
-      backupGroups.forEach((group: any, index: number) => {
-        if (group.inviteCode === cleanCode) {
-          console.log(`🎯 FOUND MATCH IN BACKUP - Group ${index + 1}:`, group.name);
-        }
-      });
-      
     } catch (error) {
-      console.error('❌ Debug error:', error);
+      console.error('❌ Debug session failed:', error);
     }
     
     console.log('🔍 === END DEBUG SESSION ===');
   }
   
-  static async checkDatabaseIntegrity(): Promise<void> {
-    console.log('🔧 === DATABASE INTEGRITY CHECK ===');
+  static async fixGroupIndexes(): Promise<void> {
+    console.log('🔧 === GROUP INDEX FIX SESSION ===');
     
     try {
-      // Initialize storage if needed
-      await storageService.init();
-      
-      // Check if invite code index exists
-      const db = (storageService as any).db;
-      if (db) {
-        const transaction = db.transaction(['groups'], 'readonly');
-        const store = transaction.objectStore('groups');
-        const indexNames = Array.from(store.indexNames);
-        
-        console.log('📊 Available indexes:', indexNames);
-        console.log('📊 Has inviteCode index:', indexNames.includes('inviteCode'));
-      }
-      
-      // Test group creation
-      const testCode = 'TEST' + Math.random().toString(36).substr(2, 2).toUpperCase();
-      console.log('🧪 Testing with code:', testCode);
-      
-    } catch (error) {
-      console.error('❌ Integrity check error:', error);
-    }
-    
-    console.log('🔧 === END INTEGRITY CHECK ===');
-  }
-  
-  static async fixInviteCodeIssues(): Promise<void> {
-    console.log('🔧 === FIXING INVITE CODE ISSUES ===');
-    
-    try {
-      // Re-initialize storage
-      await storageService.init();
-      
-      // Get all groups and re-save them to fix indexing
       const allGroups = await storageService.getAllGroups();
+      console.log('🔧 Found', allGroups.length, 'groups to check');
+      
+      let fixed = 0;
       
       for (const group of allGroups) {
-        if (group.inviteCode) {
-          // Ensure invite code is properly formatted
-          group.inviteCode = group.inviteCode.trim().toUpperCase();
-          await storageService.saveGroup(group);
-          console.log('✅ Fixed group:', group.name, '- Code:', group.inviteCode);
-        }
+        // Re-save each group to ensure proper indexing
+        await storageService.saveGroup(group);
+        fixed++;
+        console.log(`🔧 Re-indexed group: ${group.name} (${group.inviteCode})`);
       }
       
-      console.log('🔧 Fixed', allGroups.length, 'groups');
-      
+      console.log('🔧 Fixed', fixed, 'groups');
     } catch (error) {
-      console.error('❌ Fix error:', error);
+      console.error('❌ Fix session failed:', error);
     }
     
     console.log('🔧 === END FIX SESSION ===');
   }
-}
 
-// Add to window for easy access in console
-declare global {
-  interface Window {
-    debugInviteCode: (code: string) => Promise<void>;
-    checkDatabaseIntegrity: () => Promise<void>;
-    fixInviteCodeIssues: () => Promise<void>;
+  static async testGroupCreation(): Promise<void> {
+    console.log('🧪 === GROUP CREATION TEST ===');
+    
+    try {
+      const testGroupName = `Test Group ${Date.now()}`;
+      console.log('🧪 Creating test group:', testGroupName);
+      
+      const group = await authService.createGroup(testGroupName, 'Test group for debugging');
+      console.log('✅ Test group created:', group.name, 'with code:', group.inviteCode);
+      
+      // Wait a moment for indexing
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Try to find it immediately
+      const foundGroup = await storageService.getGroupByInviteCode(group.inviteCode);
+      console.log('🧪 Immediate lookup result:', foundGroup ? `FOUND: ${foundGroup.name}` : 'NOT FOUND');
+      
+      if (foundGroup) {
+        console.log('✅ Group creation and lookup working correctly!');
+      } else {
+        console.log('❌ Group creation succeeded but lookup failed - possible indexing issue');
+      }
+      
+    } catch (error) {
+      console.error('❌ Test group creation failed:', error);
+    }
+    
+    console.log('🧪 === END TEST ===');
   }
 }
 
-if (typeof window !== 'undefined') {
-  window.debugInviteCode = InviteCodeDebugger.debugInviteCode;
-  window.checkDatabaseIntegrity = InviteCodeDebugger.checkDatabaseIntegrity;
-  window.fixInviteCodeIssues = InviteCodeDebugger.fixInviteCodeIssues;
-} 
+// Make functions available globally for console debugging
+(globalThis as any).debugInviteCode = InviteCodeDebugger.debugInviteCode;
+(globalThis as any).fixGroupIndexes = InviteCodeDebugger.fixGroupIndexes;
+(globalThis as any).testGroupCreation = InviteCodeDebugger.testGroupCreation; 

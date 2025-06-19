@@ -2,7 +2,7 @@ import { Match, Player } from '../types/cricket';
 import { User, Group, Invitation } from '../types/auth';
 
 const DB_NAME = 'CricketScorerDB';
-const DB_VERSION = 5; // Increment version for enhanced persistence
+const DB_VERSION = 6; // Increment version to fix group indexing issues
 const BACKUP_KEY = 'cricket_scorer_backup';
 const AUTO_BACKUP_INTERVAL = 15 * 60 * 1000; // 15 minutes - reduced frequency to prevent crashes
 
@@ -47,21 +47,21 @@ class StorageService {
         usersStore.createIndex('email', 'email', { unique: false }); // Changed to non-unique
         usersStore.createIndex('phone', 'phone', { unique: false });
 
-        // Handle groups store - recreate if exists to ensure clean state
-        if (db.objectStoreNames.contains('groups')) {
-          db.deleteObjectStore('groups');
+        // Handle groups store - FIXED: Don't recreate if exists, just ensure index
+        if (!db.objectStoreNames.contains('groups')) {
+          const groupsStore = db.createObjectStore('groups', { keyPath: 'id' });
+          groupsStore.createIndex('inviteCode', 'inviteCode', { unique: true });
+          groupsStore.createIndex('createdBy', 'createdBy', { unique: false });
         }
-        const groupsStore = db.createObjectStore('groups', { keyPath: 'id' });
-        groupsStore.createIndex('inviteCode', 'inviteCode', { unique: true });
-        groupsStore.createIndex('createdBy', 'createdBy', { unique: false });
+        // Note: Can't modify existing store indexes during upgrade,
+        // but the manual search fallback in getGroupByInviteCode handles missing indexes
 
-        // Handle invitations store - recreate if exists
-        if (db.objectStoreNames.contains('invitations')) {
-          db.deleteObjectStore('invitations');
+        // Handle invitations store - only recreate if needed to fix structure
+        if (!db.objectStoreNames.contains('invitations')) {
+          const invitationsStore = db.createObjectStore('invitations', { keyPath: 'id' });
+          invitationsStore.createIndex('groupId', 'groupId', { unique: false });
+          invitationsStore.createIndex('invitedEmail', 'invitedEmail', { unique: false });
         }
-        const invitationsStore = db.createObjectStore('invitations', { keyPath: 'id' });
-        invitationsStore.createIndex('groupId', 'groupId', { unique: false });
-        invitationsStore.createIndex('invitedEmail', 'invitedEmail', { unique: false });
 
         // Create settings store
         if (!db.objectStoreNames.contains('settings')) {
