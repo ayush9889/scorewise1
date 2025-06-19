@@ -15,8 +15,9 @@ import { cloudStorageService } from './services/cloudStorageService';
 import { authService } from './services/authService';
 import { PDFService } from './services/pdfService';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
+import { MultiGroupDashboard } from './components/MultiGroupDashboard';
 
-type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete';
+type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete' | 'multi-group-dashboard';
 
 function App() {
   const [currentState, setCurrentState] = useState<AppState>('home');
@@ -677,7 +678,7 @@ function App() {
                   </button>
 
                   <button
-                    onClick={() => setCurrentState('group-management')}
+                    onClick={() => setCurrentState('multi-group-dashboard')}
                     className="group relative bg-white/10 backdrop-blur-sm rounded-2xl p-8 text-left hover:bg-white/20 transition-all duration-500 border border-white/20 hover:border-purple-400/50 hover:scale-105"
                   >
                     <div className="absolute inset-0 bg-gradient-to-r from-purple-500/20 to-pink-500/20 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
@@ -685,8 +686,8 @@ function App() {
                       <div className="bg-gradient-to-r from-purple-500 to-pink-500 w-16 h-16 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
                         <Users className="w-8 h-8 text-white" />
                       </div>
-                      <h3 className="text-2xl font-bold text-white mb-3">Manage Group</h3>
-                      <p className="text-purple-200">Create or join cricket groups with ease</p>
+                      <h3 className="text-2xl font-bold text-white mb-3">Manage Groups</h3>
+                      <p className="text-purple-200">Create, join & switch between multiple cricket groups</p>
                     </div>
                   </button>
                 </>
@@ -967,6 +968,15 @@ function App() {
           </div>
         )}
       </div>
+    );
+  }
+
+  if (currentState === 'multi-group-dashboard') {
+    return (
+      <MultiGroupDashboard
+        onNavigate={setCurrentState}
+        onBack={() => setCurrentState('home')}
+      />
     );
   }
 

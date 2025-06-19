@@ -10,6 +10,7 @@ import { CricketEngine } from '../services/cricketEngine';
 import { PDFService } from '../services/pdfService';
 import { LiveScorer } from './LiveScorer';
 import { authService } from '../services/authService';
+import { GroupSelector } from './GroupSelector';
 
 interface DashboardProps {
   onBack: () => void;
@@ -525,53 +526,50 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
 
   const renderMainView = () => (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm p-4 flex items-center justify-between">
-        <button
-          onClick={onBack}
-          className="flex items-center p-2 hover:bg-gray-100 rounded-lg transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5 text-gray-600 mr-2" />
-          <span className="text-gray-600">Back to Home</span>
-        </button>
-        <div className="text-center">
-          <h1 className="text-xl font-bold text-gray-900">
-            {currentGroup ? `${currentGroup.name} Dashboard` : 'Dashboard'}
-          </h1>
-          {currentGroup && (
-            <p className="text-sm text-gray-500">Group Statistics & Leaderboards</p>
-          )}
-        </div>
-        <div className="flex items-center space-x-2">
-          {/* Connection Status */}
-          <div className={`p-2 rounded-lg ${connectionStatus.online ? 'text-green-600' : 'text-red-600'}`}>
-            {connectionStatus.online ? <Wifi className="w-5 h-5" /> : <WifiOff className="w-5 h-5" />}
+      {/* Header with Group Selector */}
+      <div className="bg-white shadow-sm border-b border-gray-200 mb-6">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={onBack}
+                className="text-blue-500 hover:text-blue-600 font-semibold"
+              >
+                ← Back
+              </button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {currentGroup ? `${currentGroup.name} Dashboard` : 'Dashboard'}
+                </h1>
+                <p className="text-gray-600">Statistics and performance overview</p>
+              </div>
+            </div>
+
+            {/* Group Selector */}
+            <div className="w-80">
+              <GroupSelector
+                currentGroup={currentGroup}
+                onGroupSelect={(group) => {
+                  // Update current group and reload data
+                  authService.setCurrentGroup(group);
+                  window.location.reload(); // Simple refresh for now
+                }}
+                onCreateGroup={() => {
+                  // Navigate to group creation
+                  onBack(); // Go back to handle navigation
+                }}
+                onJoinGroup={() => {
+                  // Navigate to group joining
+                  onBack(); // Go back to handle navigation
+                }}
+                onManageGroup={() => {
+                  // Navigate to group management
+                  onBack(); // Go back to handle navigation
+                }}
+                showManagement={true}
+              />
+            </div>
           </div>
-          
-          {/* Cloud Status */}
-          <div className={`p-2 rounded-lg ${connectionStatus.firebaseWorking ? 'text-blue-600' : 'text-gray-400'}`}>
-            {connectionStatus.firebaseWorking ? <Cloud className="w-5 h-5" /> : <CloudOff className="w-5 h-5" />}
-          </div>
-          
-          {/* Sync Button */}
-          <button
-            onClick={handleSyncData}
-            disabled={syncing || !connectionStatus.online || !connectionStatus.firebaseWorking}
-            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${
-              syncing ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
-            title="Sync with Cloud"
-          >
-            <Upload className={`w-5 h-5 text-gray-600 ${syncing ? 'animate-spin' : ''}`} />
-          </button>
-          
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className={`p-2 hover:bg-gray-100 rounded-lg transition-colors ${refreshing ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <RefreshCw className={`w-5 h-5 text-gray-600 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </div>
 

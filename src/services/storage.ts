@@ -153,20 +153,16 @@ class StorageService {
   }
 
   async getGroupPlayers(groupId: string): Promise<Player[]> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['players'], 'readonly');
-      const store = transaction.objectStore('players');
-      const index = store.index('groupIds');
-      const request = index.getAll(groupId);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const players = request.result || [];
-        resolve(players);
-      };
-    });
+    try {
+      const allPlayers = await this.getAllPlayers();
+      return allPlayers.filter(player => 
+        player.isGroupMember && 
+        player.groupIds?.includes(groupId)
+      );
+    } catch (error) {
+      console.error('Failed to get group players:', error);
+      return [];
+    }
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
@@ -218,20 +214,26 @@ class StorageService {
   }
 
   async getGroupMatches(groupId: string): Promise<Match[]> {
-    if (!this.db) throw new Error('Database not initialized');
-
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['matches'], 'readonly');
-      const store = transaction.objectStore('matches');
-      const index = store.index('groupId');
-      const request = index.getAll(groupId);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const matches = request.result || [];
-        resolve(matches);
-      };
-    });
+    try {
+      const allMatches = await this.getAllMatches();
+      return allMatches.filter(match => {
+        // Check if any players in the match belong to this group
+        const allMatchPlayers = [
+          ...match.team1.players,
+          ...match.team2.players,
+          ...(match.battingTeam?.players || []),
+          ...(match.bowlingTeam?.players || [])
+        ];
+        
+        return allMatchPlayers.some(player => 
+          player.isGroupMember && 
+          player.groupIds?.includes(groupId)
+        );
+      });
+    } catch (error) {
+      console.error('Failed to get group matches:', error);
+      return [];
+    }
   }
 
   async getIncompleteMatch(): Promise<Match | null> {
@@ -1131,6 +1133,31 @@ class StorageService {
     } catch (error) {
       console.error('❌ Failed to export user data:', error);
       return null;
+    }
+  }
+
+  // Group-specific data retrieval methods for multi-group support
+  async getGroupStats(groupId: string): Promise<any> {
+    try {
+      const groupPlayers = await this.getGroupPlayers(groupId);
+      const groupMatches = await this.getGroupMatches(groupId);
+      
+      return {
+        totalPlayers: groupPlayers.length,
+        totalMatches: groupMatches.length,
+        activePlayers: groupPlayers.filter(p => 
+          p.stats && (p.stats.matchesPlayed || 0) > 0
+        ).length,
+        completedMatches: groupMatches.filter(m => m.isCompleted).length
+      };
+    } catch (error) {
+      console.error('Failed to get group stats:', error);
+      return {
+        totalPlayers: 0,
+        totalMatches: 0,
+        activePlayers: 0,
+        completedMatches: 0
+      };
     }
   }
 }
