@@ -17,57 +17,51 @@ class AuthService {
   }
 
   // CRITICAL: Restore user session from localStorage on app startup
-  async restoreUserSession() {
+  async restoreUserSession(): Promise<void> {
     try {
-      console.log('🔄 Restoring user session from localStorage...');
+      // Check localStorage for current user
+      const storedUser = localStorage.getItem('currentUser');
+      const storedGroup = localStorage.getItem('currentGroup');
       
-      // First try to restore from Firebase Auth
-      if (firebaseAuthService.isAvailable()) {
-        await firebaseAuthService.restoreUserSession();
-        const firebaseUser = firebaseAuthService.getCurrentUser();
-        if (firebaseUser) {
-          this.currentUser = firebaseUser;
-          console.log('✅ User session restored from Firebase:', this.currentUser?.name);
+      if (storedUser) {
+        try {
+          const user = JSON.parse(storedUser);
+          this.currentUser = user;
+          console.log('🔄 User session restored:', user.name);
           
-          // Restore user's groups
-          await this.loadUserGroups();
-          console.log('✅ User groups restored:', this.currentGroups.length);
-          
-          // Initialize cloud sync for cross-device synchronization
-          if (firebaseUser.email || firebaseUser.phone) {
-            userCloudSyncService.initializeUserSync(firebaseUser).catch(error => {
-              console.warn('⚠️ Cloud sync initialization failed during session restore:', error);
-            });
+          // CRITICAL: Initialize cross-device sync immediately when session is restored
+          if (user.email || user.phone) {
+            try {
+              const { userCloudSyncService } = await import('./userCloudSyncService');
+              await userCloudSyncService.initializeUserSync(user);
+              console.log('✅ Cross-device sync initialized during session restore');
+            } catch (error) {
+              console.error('❌ Failed to initialize sync during session restore:', error);
+            }
           }
           
-          return;
+        } catch (error) {
+          console.error('❌ Failed to parse stored user:', error);
+          localStorage.removeItem('currentUser');
         }
       }
       
-      // Fallback to localStorage
-      const storedUser = localStorage.getItem('currentUser');
-      if (storedUser) {
-        this.currentUser = JSON.parse(storedUser);
-        console.log('✅ User session restored from localStorage:', this.currentUser?.name);
-        
-        // Restore user's groups
-        await this.loadUserGroups();
-        console.log('✅ User groups restored:', this.currentGroups.length);
-        
-        // Initialize cloud sync for cross-device synchronization
-        if (this.currentUser && (this.currentUser.email || this.currentUser.phone)) {
-          userCloudSyncService.initializeUserSync(this.currentUser).catch(error => {
-            console.warn('⚠️ Cloud sync initialization failed during session restore:', error);
-          });
+      if (storedGroup) {
+        try {
+          const group = JSON.parse(storedGroup);
+          this.currentGroup = group;
+          console.log('🔄 Group session restored:', group.name);
+        } catch (error) {
+          console.error('❌ Failed to parse stored group:', error);
+          localStorage.removeItem('currentGroup');
         }
-      } else {
-        console.log('ℹ️ No stored user session found');
       }
+      
+      // Restore groups
+      await this.loadUserGroups();
+      
     } catch (error) {
-      console.error('❌ Failed to restore user session:', error);
-      // Clear corrupted data
-      localStorage.removeItem('currentUser');
-      localStorage.removeItem('currentGroups');
+      console.error('❌ Failed to restore session:', error);
     }
   }
 

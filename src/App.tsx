@@ -13,6 +13,8 @@ import { User, Group } from './types/auth';
 import { storageService } from './services/storage';
 import { cloudStorageService } from './services/cloudStorageService';
 import { authService } from './services/authService';
+import { userCloudSyncService } from './services/userCloudSyncService';
+import { StorageCleanup } from './services/storageCleanup';
 import { PDFService } from './services/pdfService';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
@@ -113,6 +115,20 @@ function App() {
     try {
       console.log('🚀 Initializing ScoreWise app...');
       
+      // CRITICAL: Clean up storage quota issues FIRST to prevent QuotaExceededError
+      try {
+        const quotaInfo = await StorageCleanup.checkStorageQuota();
+        console.log('📊 Storage quota check:', `${quotaInfo.percentage.toFixed(1)}% used`);
+        
+        if (quotaInfo.percentage > 85) {
+          console.warn('⚠️ Storage quota high, running emergency cleanup...');
+          await StorageCleanup.emergencyCleanup();
+          console.log('✅ Emergency storage cleanup completed');
+        }
+      } catch (cleanupError) {
+        console.warn('⚠️ Storage cleanup failed, but continuing:', cleanupError);
+      }
+      
       // FAST TRACK: Check for existing user session first
       // Initialize storage FIRST before any database operations
       await storageService.init();
@@ -177,6 +193,17 @@ function App() {
       if (sessionUser && sessionUser !== currentUser) {
         setCurrentUser(sessionUser);
         console.log('🔄 User session updated from authService:', sessionUser.name);
+        
+        // CRITICAL: Initialize cross-device sync for the restored user
+        if (sessionUser.email || sessionUser.phone) {
+          try {
+            console.log('🔄 Initializing cross-device sync for restored user...');
+            await userCloudSyncService.initializeUserSync(sessionUser);
+            console.log('✅ Cross-device sync initialized for restored user');
+          } catch (error) {
+            console.error('❌ Failed to initialize sync for restored user:', error);
+          }
+        }
       }
       
       // Set current group if user has groups
@@ -204,6 +231,17 @@ function App() {
           console.warn('⚠️ Cloud storage connection failed:', error);
           setConnectionStatus(prev => ({ ...prev, firebaseWorking: false }));
         }
+      }
+      
+      // CRITICAL: Ensure sync is properly initialized after storage is ready
+      if (sessionUser && (sessionUser.email || sessionUser.phone)) {
+        setTimeout(() => {
+          userCloudSyncService.initializeUserSync(sessionUser).then(() => {
+            console.log('✅ Deferred sync initialization completed');
+          }).catch(error => {
+            console.error('❌ Failed deferred sync initialization:', error);
+          });
+        }, 2000); // Give app time to fully initialize first
       }
       
       console.log('🎉 App initialization completed successfully');
@@ -269,6 +307,17 @@ function App() {
         console.log(`✅ Loaded ${groups.length} groups for user`);
       }
       
+      // CRITICAL: Initialize cross-device sync after successful auth
+      if (user && (user.email || user.phone)) {
+        try {
+          console.log('🔄 Initializing cross-device sync after auth...');
+          await userCloudSyncService.initializeUserSync(user);
+          console.log('✅ Cross-device sync initialized after auth');
+        } catch (error) {
+          console.error('❌ Failed to initialize sync after auth:', error);
+        }
+      }
+      
     } catch (error) {
       console.error('⚠️ Background group loading failed (non-critical):', error);
       // Don't show error to user as this is background operation
@@ -278,6 +327,14 @@ function App() {
   };
 
   const handleSignOut = async () => {
+    // Stop sync before signing out
+    try {
+      userCloudSyncService.stopSync();
+      console.log('✅ Stopped cross-device sync before sign out');
+    } catch (error) {
+      console.warn('⚠️ Failed to stop sync before sign out:', error);
+    }
+    
     await authService.signOut();
     setCurrentUser(null);
     setCurrentGroup(null);

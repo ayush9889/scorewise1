@@ -165,6 +165,40 @@ class StorageService {
     }
   }
 
+  async removePlayerFromGroup(playerId: string, groupId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const player = await this.getPlayer(playerId);
+      if (!player) {
+        throw new Error('Player not found');
+      }
+
+      // If player only belongs to this group, delete them entirely
+      if (player.groupIds && player.groupIds.length === 1 && player.groupIds[0] === groupId) {
+        return new Promise((resolve, reject) => {
+          const transaction = this.db!.transaction(['players'], 'readwrite');
+          const store = transaction.objectStore('players');
+          const request = store.delete(playerId);
+
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => resolve();
+        });
+      } else if (player.groupIds) {
+        // Remove group from player's groupIds
+        const updatedPlayer = {
+          ...player,
+          groupIds: player.groupIds.filter(id => id !== groupId)
+        };
+
+        return this.savePlayer(updatedPlayer);
+      }
+    } catch (error) {
+      console.error('Failed to remove player from group:', error);
+      throw error;
+    }
+  }
+
   async searchPlayers(query: string): Promise<Player[]> {
     const allPlayers = await this.getAllPlayers();
     return allPlayers.filter(player => 
@@ -598,41 +632,132 @@ class StorageService {
 
   async createBackup(): Promise<void> {
     try {
+      // Check storage quota before creating backup
+      const quotaCheck = await this.checkStorageQuota();
+      if (quotaCheck.percentage > 80) {
+        console.warn('⚠️ Storage quota high, skipping backup to prevent quota exceeded error');
+        return;
+      }
+
+      // Create smaller, more efficient backup - only essential data
+      const users = await this.getAllUsers();
+      const groups = await this.getAllGroups();
+      
+      // Only backup recent/important data to save space
+      const recentMatches = (await this.getAllMatches())
+        .filter(match => {
+          const matchDate = new Date(match.startTime);
+          const thirtyDaysAgo = new Date();
+          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+          return matchDate > thirtyDaysAgo || !match.isCompleted;
+        })
+        .slice(-50); // Max 50 recent matches
+
+      const activePlayers = (await this.getAllPlayers())
+        .filter(player => player.isGroupMember)
+        .slice(-100); // Max 100 active players
+
       const backupData = {
         timestamp: Date.now(),
         version: DB_VERSION,
         data: {
-          users: await this.getAllUsers(),
-          groups: await this.getAllGroups(),
-          players: await this.getAllPlayers(),
-          matches: await this.getAllMatches(),
-          settings: await this.getAllSettings()
+          users: users.slice(-20), // Max 20 recent users
+          groups: groups.slice(-10), // Max 10 recent groups
+          players: activePlayers,
+          matches: recentMatches,
+          settings: [] // Skip settings to save space
         }
       };
 
-      // Store in localStorage as primary backup
-      localStorage.setItem(BACKUP_KEY, JSON.stringify(backupData));
+      const backupString = JSON.stringify(backupData);
       
-      // Also store in sessionStorage as secondary backup
-      sessionStorage.setItem(BACKUP_KEY, JSON.stringify(backupData));
-      
-      // Store multiple backup versions
-      const backupHistory = this.getBackupHistory();
-      backupHistory.push({
-        timestamp: Date.now(),
-        size: JSON.stringify(backupData).length
-      });
-      
-      // Keep only last 10 backups
-      if (backupHistory.length > 10) {
-        backupHistory.splice(0, backupHistory.length - 10);
+      // Check if backup size is reasonable (max 1MB)
+      if (backupString.length > 1024 * 1024) {
+        console.warn('⚠️ Backup too large, creating minimal backup instead');
+        
+        // Create minimal backup with only users and current group
+        const minimalBackup = {
+          timestamp: Date.now(),
+          version: DB_VERSION,
+          data: {
+            users: users.slice(-5),
+            groups: groups.slice(-2),
+            players: [],
+            matches: recentMatches.slice(-10),
+            settings: []
+          }
+        };
+        
+        try {
+          localStorage.setItem(BACKUP_KEY, JSON.stringify(minimalBackup));
+          console.log('✅ Minimal backup created successfully');
+        } catch (error) {
+          console.warn('⚠️ Even minimal backup failed, skipping backup');
+          return;
+        }
+      } else {
+        try {
+          // Try to store backup
+          localStorage.setItem(BACKUP_KEY, backupString);
+          console.log('✅ Backup created successfully');
+        } catch (error) {
+          if (error.name === 'QuotaExceededError') {
+            console.warn('⚠️ Storage quota exceeded, clearing old backups and retrying with minimal backup');
+            
+            // Clear old backup data
+            localStorage.removeItem(BACKUP_KEY);
+            localStorage.removeItem(`${BACKUP_KEY}_history`);
+            
+            // Try minimal backup
+            const minimalBackup = {
+              timestamp: Date.now(),
+              version: DB_VERSION,
+              data: {
+                users: users.slice(-3),
+                groups: groups.slice(-1),
+                players: [],
+                matches: [],
+                settings: []
+              }
+            };
+            
+            try {
+              localStorage.setItem(BACKUP_KEY, JSON.stringify(minimalBackup));
+              console.log('✅ Emergency minimal backup created');
+            } catch (retryError) {
+              console.error('❌ All backup attempts failed, skipping backup');
+              return;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
       
-      localStorage.setItem(`${BACKUP_KEY}_history`, JSON.stringify(backupHistory));
+      // Skip backup history to save space
       
     } catch (error) {
       console.error('❌ Backup creation failed:', error);
-      throw error;
+      // Don't throw error to prevent app crashes
+    }
+  }
+  
+  private async checkStorageQuota(): Promise<{percentage: number}> {
+    try {
+      let used = 0;
+      let total = 5 * 1024 * 1024; // 5MB default
+      
+      // Calculate current localStorage usage
+      for (let key in localStorage) {
+        if (localStorage.hasOwnProperty(key)) {
+          used += localStorage[key].length + key.length;
+        }
+      }
+      
+      const percentage = (used / total) * 100;
+      return { percentage };
+    } catch (error) {
+      return { percentage: 0 };
     }
   }
 

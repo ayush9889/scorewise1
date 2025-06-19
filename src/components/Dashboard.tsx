@@ -842,22 +842,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
 
         {/* Cloud Sync Status */}
         {!currentUser?.isGuest && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <CloudSyncStatus />
-            
-            {/* Manual Sync Button for Testing */}
-            <div className="mt-4 pt-4 border-t">
-              <button
-                onClick={handleManualSync}
-                className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                🔄 Force Sync Now (Test)
-              </button>
-              <p className="text-xs text-gray-500 mt-2 text-center">
-                Use this button to test cross-device synchronization
-              </p>
-            </div>
-          </div>
+          <CloudSyncStatus 
+            isOnline={connectionStatus.online}
+            firebaseWorking={connectionStatus.firebaseWorking}
+            lastSync={connectionStatus.lastSync}
+          />
         )}
 
         {/* Recent Matches */}
@@ -957,31 +946,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
           </div>
         )}
 
-        {currentUser && (
-          <div className="mb-8">
-            <CloudSyncStatus />
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={handleManualSync}
-                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-              >
-                Force Sync Now
-              </button>
-              <button
-                onClick={handleCrossDeviceTest}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                🧪 Test Cross-Device Sync
-              </button>
-              <button
-                onClick={handleShowDebugInfo}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                📊 Show Debug Info
-              </button>
-            </div>
-          </div>
-        )}
+
       </div>
     </div>
   );

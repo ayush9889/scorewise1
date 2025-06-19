@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Share2, Settings, Crown, UserPlus, Copy, Check, Phone, Mail, Link, Eye, UserCheck, AlertCircle, X, MessageCircle, FileText, Upload, Download } from 'lucide-react';
+import { Users, Plus, Share2, Settings, Crown, UserPlus, Copy, Check, Phone, Mail, Link, Eye, UserCheck, AlertCircle, X, MessageCircle, FileText, Upload, Download, Edit, Trash2, Star } from 'lucide-react';
 import { Group, User } from '../types/auth';
 import { Player } from '../types/cricket';
 import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
+import { AddPlayerModal } from './AddPlayerModal';
 
 interface GroupManagementProps {
   onBack: () => void;
@@ -12,10 +13,13 @@ interface GroupManagementProps {
 export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
   const [members, setMembers] = useState<User[]>([]);
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [activeTab, setActiveTab] = useState<'members' | 'players'>('members');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showJoinGroup, setShowJoinGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showQuickAddModal, setShowQuickAddModal] = useState(false);
+  const [showAddPlayerModal, setShowAddPlayerModal] = useState(false);
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [inviteCode, setInviteCode] = useState('');
@@ -47,6 +51,11 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         setMembers(groupMembers);
         setGuestLink(authService.generateGuestLink(group.id));
         console.log('👥 Loaded group members:', groupMembers.length);
+        
+        // Load group players
+        const groupPlayers = await storageService.getGroupPlayers(group.id);
+        setPlayers(groupPlayers);
+        console.log('🏏 Loaded group players:', groupPlayers.length);
       }
     } catch (error) {
       console.error('Failed to load group data:', error);
@@ -431,6 +440,44 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     setImportStep('preview');
   };
 
+  const handlePlayerAdded = async (player: Player) => {
+    console.log('🏏 Player added:', player.name);
+    // Refresh players list
+    if (currentGroup) {
+      const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
+      setPlayers(groupPlayers);
+    }
+  };
+
+  const handleDeletePlayer = async (playerId: string, playerName: string) => {
+    if (!currentGroup) return;
+    
+    const confirmed = window.confirm(`Are you sure you want to remove ${playerName} from the group? This will delete all their stats and match history.`);
+    if (!confirmed) return;
+
+    try {
+      await storageService.removePlayerFromGroup(playerId, currentGroup.id);
+      console.log('🗑️ Player removed:', playerName);
+      
+      // Refresh players list
+      const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
+      setPlayers(groupPlayers);
+    } catch (error) {
+      console.error('Failed to remove player:', error);
+    }
+  };
+
+  const getPlayerMatchStats = (player: Player) => {
+    const stats = player.stats || {};
+    return {
+      matches: stats.matchesPlayed || 0,
+      runs: stats.runsScored || 0,
+      wickets: stats.wicketsTaken || 0,
+      average: stats.matchesPlayed > 0 ? (stats.runsScored / Math.max(stats.timesOut || 1, 1)).toFixed(1) : '0.0',
+      strikeRate: stats.ballsFaced > 0 ? ((stats.runsScored / stats.ballsFaced) * 100).toFixed(1) : '0.0'
+    };
+  };
+
   const handleBulkImportConfirm = async () => {
     setImportStep('importing');
     setLoading(true);
@@ -550,138 +597,299 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
             </div>
 
             {/* Member Management Actions */}
-            {canManageGroup && (
-              <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Player Management</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Tab Navigation */}
+            <div className="bg-white rounded-2xl shadow-lg">
+              <div className="border-b border-gray-200">
+                <nav className="flex">
                   <button
-                    onClick={() => setShowInviteModal(true)}
-                    className="p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
+                    onClick={() => setActiveTab('members')}
+                    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === 'members'
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
                   >
-                    <UserPlus className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-green-700">Add Player</div>
-                    <div className="text-xs text-green-600">Add one player manually</div>
+                    <div className="flex items-center space-x-2">
+                      <Users className="w-4 h-4" />
+                      <span>Members ({members.length})</span>
+                    </div>
                   </button>
-
                   <button
-                    onClick={() => setShowBulkImport(true)}
-                    className="p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                    onClick={() => setActiveTab('players')}
+                    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
+                      activeTab === 'players'
+                        ? 'border-blue-500 text-blue-600'
+                        : 'border-transparent text-gray-500 hover:text-gray-700'
+                    }`}
                   >
-                    <MessageCircle className="w-6 h-6 text-blue-600 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-blue-700">🚀 Import from WhatsApp</div>
-                    <div className="text-xs text-blue-600">Bulk import multiple players</div>
+                    <div className="flex items-center space-x-2">
+                      <Star className="w-4 h-4" />
+                      <span>Players ({players.length})</span>
+                    </div>
                   </button>
+                </nav>
+              </div>
 
-                  <button
-                    onClick={() => copyToClipboard(currentGroup.inviteCode)}
-                    className="p-4 border-2 border-purple-200 rounded-lg hover:bg-purple-50 transition-colors"
-                  >
-                    <Copy className="w-6 h-6 text-purple-600 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-purple-700">Share Invite Code</div>
-                    <div className="text-xs text-purple-600">Copy: {currentGroup.inviteCode}</div>
-                  </button>
-                </div>
+              <div className="p-6">
+                {activeTab === 'members' && (
+                  <div className="space-y-6">
+                    {canManageGroup && (
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Member Management</h3>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <button
+                            onClick={() => setShowInviteModal(true)}
+                            className="p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
+                          >
+                            <UserPlus className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                            <div className="text-sm font-medium text-green-700">Add Member</div>
+                            <div className="text-xs text-green-600">Add one member manually</div>
+                          </button>
 
-                <div className="mt-4 p-4 bg-blue-50 rounded-lg">
-                  <div className="flex items-start space-x-3">
-                    <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
-                    <div className="text-sm text-blue-800">
-                      <p className="font-medium mb-1">How it works:</p>
-                      <ul className="text-xs space-y-1 list-disc list-inside">
-                        <li><strong>Add Player:</strong> Add individual players by email</li>
-                        <li><strong>🚀 WhatsApp Import:</strong> Bulk import your entire WhatsApp group in seconds!</li>
-                        <li><strong>Share Code:</strong> Let others join using the group invite code</li>
-                        <li>Players can participate in matches immediately and their stats will be tracked</li>
-                        <li>They need to verify with the same email for full player profile access</li>
-                      </ul>
+                          <button
+                            onClick={() => setShowBulkImport(true)}
+                            className="p-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition-colors"
+                          >
+                            <MessageCircle className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                            <div className="text-sm font-medium text-blue-700">🚀 Import from WhatsApp</div>
+                            <div className="text-xs text-blue-600">Bulk import multiple members</div>
+                          </button>
+
+                          <button
+                            onClick={() => copyToClipboard(currentGroup.inviteCode)}
+                            className="p-4 border-2 border-purple-200 rounded-lg hover:bg-purple-50 transition-colors"
+                          >
+                            <Copy className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+                            <div className="text-sm font-medium text-purple-700">Share Invite Code</div>
+                            <div className="text-xs text-purple-600">Copy: {currentGroup.inviteCode}</div>
+                          </button>
+                        </div>
+
+                        <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                          <div className="flex items-start space-x-3">
+                            <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
+                            <div className="text-sm text-blue-800">
+                              <p className="font-medium mb-1">How member management works:</p>
+                              <ul className="text-xs space-y-1 list-disc list-inside">
+                                <li><strong>Add Member:</strong> Add individual members by email</li>
+                                <li><strong>🚀 WhatsApp Import:</strong> Bulk import your entire WhatsApp group in seconds!</li>
+                                <li><strong>Share Code:</strong> Let others join using the group invite code</li>
+                                <li>Members can participate in matches immediately and their stats will be tracked</li>
+                                <li>They need to verify with the same email for full member profile access</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Group Members</h3>
+                      <div className="space-y-3">
+                        {members.map((member) => {
+                          const memberInfo = currentGroup.members.find(m => m.userId === member.id);
+                          const isCurrentUser = member.id === currentUser?.id;
+                          const isVerified = member.isVerified;
+                          const isAdmin = memberInfo?.role === 'admin';
+                          const canRemove = canManageGroup && !isCurrentUser && !isVerified;
+                          
+                          return (
+                            <div key={member.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                              <div className="flex items-center">
+                                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
+                                  {member.photoUrl ? (
+                                    <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover rounded-full" />
+                                  ) : (
+                                    <span className="font-semibold text-green-600 text-lg">
+                                      {member.name.charAt(0).toUpperCase()}
+                                    </span>
+                                  )}
+                                </div>
+                                <div>
+                                  <div className="flex items-center space-x-2">
+                                    <div className="font-medium text-gray-900">{member.name}</div>
+                                    {isCurrentUser && (
+                                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                        You
+                                      </span>
+                                    )}
+                                    {isAdmin && (
+                                      <Crown className="w-4 h-4 text-yellow-500" />
+                                    )}
+                                  </div>
+                                  <div className="flex items-center space-x-2 mt-1">
+                                    <span className={`px-2 py-1 text-xs rounded-full ${
+                                      isVerified 
+                                        ? 'bg-green-100 text-green-700' 
+                                        : 'bg-orange-100 text-orange-700'
+                                    }`}>
+                                      {isVerified ? (
+                                        <div className="flex items-center">
+                                          <UserCheck className="w-3 h-3 mr-1" />
+                                          Verified
+                                        </div>
+                                      ) : (
+                                        <div className="flex items-center">
+                                          <Mail className="w-3 h-3 mr-1" />
+                                          Unverified
+                                        </div>
+                                      )}
+                                    </span>
+                                    <span className="text-xs text-gray-500 capitalize">{memberInfo?.role}</span>
+                                  </div>
+                                  {member.phone && (
+                                    <div className="text-xs text-gray-400 mt-1">{member.phone}</div>
+                                  )}
+                                  {!isVerified && (
+                                    <div className="text-xs text-orange-600 mt-1">
+                                      Can participate in matches • Sign up with {member.email} to verify
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="flex items-center space-x-2">
+                                {canRemove && (
+                                  <button
+                                    onClick={() => handleRemoveUnverifiedMember(member.id, member.name)}
+                                    className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-xs"
+                                    title="Remove unverified member"
+                                  >
+                                    Remove
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {/* Players List */}
-            <div className="bg-white rounded-2xl shadow-lg p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Players ({members.length})
-              </h3>
-              <div className="space-y-3">
-                {members.map((member) => {
-                  const memberInfo = currentGroup.members.find(m => m.userId === member.id);
-                  const isCurrentUser = member.id === currentUser?.id;
-                  const isVerified = member.isVerified;
-                  const isAdmin = memberInfo?.role === 'admin';
-                  const canRemove = canManageGroup && !isCurrentUser && !isVerified;
-                  
-                  return (
-                    <div key={member.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
-                      <div className="flex items-center">
-                        <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
-                          {member.photoUrl ? (
-                            <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover rounded-full" />
-                          ) : (
-                            <span className="font-semibold text-green-600 text-lg">
-                              {member.name.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center space-x-2">
-                            <div className="font-medium text-gray-900">{member.name}</div>
-                            {isCurrentUser && (
-                              <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-                                You
-                              </span>
-                            )}
-                            {isAdmin && (
-                              <Crown className="w-4 h-4 text-yellow-500" />
-                            )}
-                          </div>
-                          <div className="flex items-center space-x-2 mt-1">
-                            <span className={`px-2 py-1 text-xs rounded-full ${
-                              isVerified 
-                                ? 'bg-green-100 text-green-700' 
-                                : 'bg-orange-100 text-orange-700'
-                            }`}>
-                              {isVerified ? (
-                                <div className="flex items-center">
-                                  <UserCheck className="w-3 h-3 mr-1" />
-                                  Verified
-                                </div>
-                              ) : (
-                                <div className="flex items-center">
-                                  <Mail className="w-3 h-3 mr-1" />
-                                  Unverified
-                                </div>
-                              )}
-                            </span>
-                            <span className="text-xs text-gray-500 capitalize">{memberInfo?.role}</span>
-                          </div>
-                          {member.phone && (
-                            <div className="text-xs text-gray-400 mt-1">{member.phone}</div>
-                          )}
-                          {!isVerified && (
-                            <div className="text-xs text-orange-600 mt-1">
-                              Can participate in matches • Sign up with {member.email} to verify
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex items-center space-x-2">
-                        {canRemove && (
+                {activeTab === 'players' && (
+                  <div className="space-y-6">
+                    {canManageGroup && (
+                      <div>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-gray-900">Player Management</h3>
                           <button
-                            onClick={() => handleRemoveUnverifiedMember(member.id, member.name)}
-                            className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-xs"
-                            title="Remove unverified member"
+                            onClick={() => setShowAddPlayerModal(true)}
+                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                           >
-                            Remove
+                            <Plus className="w-4 h-4" />
+                            <span>Add Player</span>
                           </button>
-                        )}
+                        </div>
+
+                        <div className="p-4 bg-purple-50 rounded-lg">
+                          <div className="flex items-start space-x-3">
+                            <Star className="w-5 h-5 text-purple-600 mt-0.5" />
+                            <div className="text-sm text-purple-800">
+                              <p className="font-medium mb-1">Player Management:</p>
+                              <ul className="text-xs space-y-1 list-disc list-inside">
+                                <li>Add players who will participate in group matches</li>
+                                <li>Players can be group members or guests</li>
+                                <li>Stats are tracked automatically during matches</li>
+                                <li>Group members get full profile access, guests are temporary</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </div>
                       </div>
+                    )}
+
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Team Players</h3>
+                      {players.length === 0 ? (
+                        <div className="text-center py-12">
+                          <Star className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                          <h3 className="text-lg font-medium text-gray-900 mb-2">No players yet</h3>
+                          <p className="text-gray-500 mb-6">Start by adding some players to your group</p>
+                          {canManageGroup && (
+                            <button
+                              onClick={() => setShowAddPlayerModal(true)}
+                              className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                              <Plus className="w-5 h-5" />
+                              <span>Add First Player</span>
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {players.map((player) => {
+                            const stats = getPlayerMatchStats(player);
+                            
+                            return (
+                              <div key={player.id} className="bg-gradient-to-br from-white to-gray-50 p-6 border border-gray-200 rounded-xl hover:shadow-md transition-shadow">
+                                <div className="flex items-center justify-between mb-4">
+                                  <div className="flex items-center space-x-3">
+                                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                                      {player.photoUrl ? (
+                                        <img src={player.photoUrl} alt={player.name} className="w-full h-full object-cover rounded-full" />
+                                      ) : (
+                                        <span className="font-semibold text-blue-600 text-lg">
+                                          {player.name.charAt(0).toUpperCase()}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <h4 className="font-semibold text-gray-900">{player.name}</h4>
+                                      <div className="flex items-center space-x-2">
+                                        <span className={`px-2 py-1 text-xs rounded-full ${
+                                          player.isGroupMember 
+                                            ? 'bg-green-100 text-green-700' 
+                                            : 'bg-orange-100 text-orange-700'
+                                        }`}>
+                                          {player.isGroupMember ? 'Member' : 'Guest'}
+                                        </span>
+                                        {player.shortId && (
+                                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-mono">
+                                            {player.shortId}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  {canManageGroup && (
+                                    <button
+                                      onClick={() => handleDeletePlayer(player.id, player.name)}
+                                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                      title="Remove player"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                  <div>
+                                    <div className="text-gray-500">Matches</div>
+                                    <div className="font-semibold text-gray-900">{stats.matches}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Runs</div>
+                                    <div className="font-semibold text-gray-900">{stats.runs}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Average</div>
+                                    <div className="font-semibold text-gray-900">{stats.average}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-gray-500">Wickets</div>
+                                    <div className="font-semibold text-gray-900">{stats.wickets}</div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1146,6 +1354,14 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
           </div>
         </div>
       )}
+
+      {/* Add Player Modal */}
+      <AddPlayerModal
+        isOpen={showAddPlayerModal}
+        onClose={() => setShowAddPlayerModal(false)}
+        onPlayerAdded={handlePlayerAdded}
+        groupId={currentGroup?.id}
+      />
     </div>
   );
 };
