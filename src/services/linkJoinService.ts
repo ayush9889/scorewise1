@@ -66,16 +66,15 @@ export class LinkJoinService {
   }
   
   /**
-   * Join group using a join link token
+   * Join a group using a join token
    */
   static async joinGroupByLink(token: string): Promise<Group> {
-    console.log('🔗 Starting join group by link process with token:', token);
+    console.log('🔗 Starting join process with token:', token);
     
+    // Parse the token
     const parsedToken = this.parseJoinToken(token);
-    
     if (!parsedToken) {
-      console.error('❌ Failed to parse join token');
-      throw new Error('Invalid or expired join link');
+      throw new Error('Invalid join token format');
     }
     
     const { groupId, inviteCode, timestamp } = parsedToken;
@@ -87,10 +86,30 @@ export class LinkJoinService {
     try {
       // ENHANCED: Try multiple search strategies for better reliability
       console.log('🔍 Strategy 1: Searching by invite code (most reliable)...');
+      
+      // First, let's get ALL groups and debug what we have
+      const allGroups = await storageService.getAllGroups();
+      console.log('📊 Total groups in storage:', allGroups.length);
+      
+      // Log all available groups for comprehensive debugging
+      console.log('🔍 === COMPREHENSIVE GROUP DEBUG ===');
+      allGroups.forEach((g, index) => {
+        console.log(`Group ${index + 1}:`, {
+          id: g.id,
+          name: g.name,
+          inviteCode: g.inviteCode,
+          createdBy: g.createdBy,
+          members: g.members?.length || 0,
+          idMatch: g.id === groupId ? '✅ ID MATCH' : '❌ no id match',
+          codeMatch: g.inviteCode === inviteCode ? '✅ CODE MATCH' : '❌ no code match'
+        });
+      });
+      
+      // Try to find by invite code first (most reliable)
       group = await storageService.getGroupByInviteCode(inviteCode);
       
       if (group) {
-        console.log('✅ Found group by invite code:', group.name, 'ID:', group.id);
+        console.log('✅ Found group by invite code via storage service:', group.name, 'ID:', group.id);
         
         // Verify the group ID matches (extra security)
         if (group.id !== groupId) {
@@ -98,42 +117,53 @@ export class LinkJoinService {
           // Continue anyway if invite code matches - the invite code is the primary identifier
         }
       } else {
-        console.log('❌ Group not found by invite code, trying by ID...');
+        console.log('❌ Storage service returned null, trying manual search...');
         
-        // Fallback: Try to find by ID
-        try {
-          group = await storageService.getGroup(groupId);
-          console.log('🔍 Found group by ID:', group?.name || 'null');
-        } catch (error) {
-          console.warn('⚠️ Failed to find group by ID:', error);
-        }
-      }
-      
-      // If still no group found, try getting all groups and searching manually
-      if (!group) {
-        console.log('🔍 Strategy 2: Searching through all groups...');
-        const allGroups = await storageService.getAllGroups();
-        console.log('📊 Total groups in storage:', allGroups.length);
-        
-        // Log all available groups for debugging
-        allGroups.forEach((g, index) => {
-          console.log(`Group ${index + 1}:`, {
-            id: g.id,
-            name: g.name,
-            inviteCode: g.inviteCode,
-            matchesToken: g.inviteCode === inviteCode ? '✅ MATCH' : '❌ NO MATCH'
-          });
-        });
-        
-        // Find by invite code
+        // Manual search through all groups
         group = allGroups.find(g => g.inviteCode === inviteCode) || null;
         
         if (group) {
-          console.log('✅ Found group through manual search:', group.name);
+          console.log('✅ Found group through manual array search:', group.name);
         } else {
-          console.error('❌ Group not found in any search strategy');
-          console.log('🔍 Available invite codes:', allGroups.map(g => g.inviteCode));
-          console.log('🔍 Looking for invite code:', inviteCode);
+          console.log('❌ Manual search also failed');
+          
+          // Try searching by ID as last resort
+          console.log('🔍 Strategy 2: Searching by group ID as fallback...');
+          group = allGroups.find(g => g.id === groupId) || null;
+          
+          if (group) {
+            console.log('✅ Found group by ID (but invite code mismatch):', group.name);
+            console.warn('⚠️ Security warning: Group found by ID but invite code mismatch');
+            console.warn('Expected invite code:', inviteCode, 'Found:', group.inviteCode);
+            
+            // Don't use this group for security reasons
+            group = null;
+          }
+        }
+      }
+      
+      // Final comprehensive search if still no group found
+      if (!group) {
+        console.log('🔍 Strategy 3: Ultra-comprehensive search...');
+        
+        // Try case-insensitive search
+        const caseInsensitiveMatch = allGroups.find(g => 
+          g.inviteCode && g.inviteCode.toUpperCase() === inviteCode.toUpperCase()
+        );
+        
+        if (caseInsensitiveMatch) {
+          console.log('✅ Found group via case-insensitive search:', caseInsensitiveMatch.name);
+          group = caseInsensitiveMatch;
+        } else {
+          // Try trimmed search
+          const trimmedMatch = allGroups.find(g => 
+            g.inviteCode && g.inviteCode.trim() === inviteCode.trim()
+          );
+          
+          if (trimmedMatch) {
+            console.log('✅ Found group via trimmed search:', trimmedMatch.name);
+            group = trimmedMatch;
+          }
         }
       }
       
@@ -143,7 +173,35 @@ export class LinkJoinService {
     
     if (!group) {
       console.error('❌ Group not found after all search strategies');
-      throw new Error(`Group not found. The group may have been deleted or the link is invalid.\n\nDebug Info:\n- Group ID: ${groupId}\n- Invite Code: ${inviteCode}\n- Token Age: ${((Date.now() - timestamp) / (1000 * 60 * 60)).toFixed(1)} hours`);
+      console.error('🔍 Search criteria:');
+      console.error('  - Group ID:', groupId);
+      console.error('  - Invite Code:', inviteCode);
+      console.error('  - Token Age:', ((Date.now() - timestamp) / (1000 * 60 * 60)).toFixed(1), 'hours');
+      
+      // Get more debug info
+      const allGroups = await storageService.getAllGroups();
+      console.error('🔍 Available groups count:', allGroups.length);
+      console.error('🔍 Available invite codes:', allGroups.map(g => g.inviteCode).filter(Boolean));
+      
+      throw new Error(`Failed to join group: Group not found.
+
+🔍 Debug Information:
+• Group ID: ${groupId}
+• Invite Code: ${inviteCode}
+• Token Age: ${((Date.now() - timestamp) / (1000 * 60 * 60)).toFixed(1)} hours
+• Available Groups: ${allGroups.length}
+
+📋 Possible Issues:
+1. The group may have been deleted
+2. The invite code may have changed
+3. There may be a data sync issue
+
+🛠️ Try These Solutions:
+1. Ask the group admin to create a new link
+2. Refresh the page and try again
+3. Use the traditional invite code instead: "${inviteCode}"
+
+💡 For admins: Open browser console (F12) and run debugJoinIssues() for detailed analysis.`);
     }
     
     // Verify the invite code matches (security check)
@@ -154,6 +212,12 @@ export class LinkJoinService {
     }
     
     console.log('✅ Group found and verified, proceeding to join...');
+    console.log('🏏 Group details:', {
+      id: group.id,
+      name: group.name,
+      inviteCode: group.inviteCode,
+      members: group.members?.length || 0
+    });
     
     // Use the existing join logic from authService
     return await authService.joinGroup(inviteCode);

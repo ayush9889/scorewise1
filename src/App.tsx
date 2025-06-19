@@ -188,6 +188,67 @@ function App() {
         });
       };
       
+      // SPECIFIC DIAGNOSTIC: Check for the missing group with invite code 8DZUS3
+      (window as any).checkMissingGroup = async () => {
+        console.log('🔍 === CHECKING FOR MISSING GROUP (8DZUS3) ===');
+        
+        const targetInviteCode = '8DZUS3';
+        const targetGroupId = 'group_1750355244923';
+        
+        try {
+          // Check all storage locations
+          const allGroups = await storageService.getAllGroups();
+          console.log('📊 Total groups in storage:', allGroups.length);
+          
+          // Look for the specific group
+          const foundByCode = allGroups.find(g => g.inviteCode === targetInviteCode);
+          const foundById = allGroups.find(g => g.id === targetGroupId);
+          
+          console.log('🔍 Search results:');
+          console.log('  - Found by invite code (8DZUS3):', foundByCode ? `✅ ${foundByCode.name}` : '❌ Not found');
+          console.log('  - Found by group ID:', foundById ? `✅ ${foundById.name}` : '❌ Not found');
+          
+          // Check localStorage backups
+          console.log('🔄 Checking localStorage backups...');
+          const backupKeys = Object.keys(localStorage).filter(key => key.startsWith('group_backup_'));
+          console.log('📋 Backup keys found:', backupKeys.length);
+          
+          backupKeys.forEach(key => {
+            try {
+              const groupData = JSON.parse(localStorage.getItem(key) || '{}');
+              if (groupData.inviteCode === targetInviteCode || groupData.id === targetGroupId) {
+                console.log('✅ Found target group in backup:', key, groupData.name);
+                
+                // Auto-restore this group
+                storageService.saveGroup(groupData).then(() => {
+                  console.log('🔄 Auto-restored missing group:', groupData.name);
+                  alert(`Found and restored missing group: ${groupData.name}`);
+                }).catch(error => {
+                  console.error('❌ Failed to auto-restore:', error);
+                });
+              }
+            } catch (error) {
+              console.warn('⚠️ Invalid backup data in:', key);
+            }
+          });
+          
+          // Check if we need to generate a new group
+          if (!foundByCode && !foundById) {
+            console.log('❌ Group completely missing from all storage locations');
+            console.log('💡 The group may have been deleted during the previous bug');
+            console.log('🛠️ Solution: Create a new group and share a fresh link');
+          }
+          
+        } catch (error) {
+          console.error('❌ Error during diagnostic:', error);
+        }
+      };
+      
+      // Auto-run the check for the missing group
+      setTimeout(() => {
+        (window as any).checkMissingGroup();
+      }, 2000);
+      
       // CRITICAL: Clean up storage quota issues FIRST to prevent QuotaExceededError
       try {
         const quotaInfo = await StorageCleanup.checkStorageQuota();

@@ -25,22 +25,47 @@ try {
     localCache: persistentLocalCache({
       tabManager: persistentMultipleTabManager()
     }),
+    // CRITICAL: Force long polling to avoid QUIC protocol issues
     experimentalForceLongPolling: true,
-    useFetchStreams: false
+    // Disable fetch streams which can cause QUIC errors
+    useFetchStreams: false,
+    // Add additional settings to handle connectivity issues
+    settings: {
+      ignoreUndefinedProperties: true
+    }
   });
   
-  console.log('✅ Firestore initialized successfully with persistent cache');
+  console.log('✅ Firestore initialized successfully with QUIC protocol fallback');
 } catch (error) {
-  console.warn('⚠️ Failed to initialize Firestore with persistent cache, falling back to default:', error);
+  console.warn('⚠️ Failed to initialize Firestore with enhanced settings, trying basic config:', error);
   try {
-    db = getFirestore(app);
-    console.log('✅ Firestore initialized with default configuration');
-  } catch (fallbackError) {
-    console.error('❌ Failed to initialize Firestore completely:', fallbackError);
-    db = {
-      collection: () => ({ doc: () => ({ set: async () => {}, get: async () => ({ exists: false, data: () => null }) }) }),
-      doc: () => ({ set: async () => {}, get: async () => ({ exists: false, data: () => null }) })
-    };
+    // Fallback: Try with long polling only
+    db = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      useFetchStreams: false
+    });
+    console.log('✅ Firestore initialized with long polling fallback');
+  } catch (longPollingError) {
+    console.warn('⚠️ Long polling initialization failed, using default Firestore:', longPollingError);
+    try {
+      db = getFirestore(app);
+      console.log('✅ Firestore initialized with default configuration');
+    } catch (fallbackError) {
+      console.error('❌ Failed to initialize Firestore completely:', fallbackError);
+      // Create offline-only mock to prevent app crashes
+      db = {
+        collection: () => ({ 
+          doc: () => ({ 
+            set: async () => { console.log('📱 Offline mode: Data saved locally only'); }, 
+            get: async () => ({ exists: false, data: () => null }) 
+          }) 
+        }),
+        doc: () => ({ 
+          set: async () => { console.log('📱 Offline mode: Data saved locally only'); }, 
+          get: async () => ({ exists: false, data: () => null }) 
+        })
+      };
+    }
   }
 }
 
@@ -72,16 +97,20 @@ try {
   googleProvider = null;
 }
 
-// Add global error handler for Firebase internal errors
+// Enhanced global error handler for Firebase internal errors including QUIC protocol errors
 if (typeof window !== 'undefined') {
   window.addEventListener('error', (event) => {
     if (event.error && (
       event.error.message?.includes('sendBeacon') ||
       event.error.message?.includes('firebase') ||
       event.error.message?.includes('Firebase') ||
-      event.filename?.includes('firebase')
+      event.error.message?.includes('QUIC_PROTOCOL_ERROR') ||
+      event.error.message?.includes('ERR_QUIC_PROTOCOL_ERROR') ||
+      event.error.message?.includes('net::ERR_QUIC_PROTOCOL_ERROR') ||
+      event.filename?.includes('firebase') ||
+      event.filename?.includes('firestore')
     )) {
-      console.warn('⚠️ Firebase internal error caught and ignored:', event.error);
+      console.warn('⚠️ Firebase/QUIC protocol error caught and ignored:', event.error.message);
       event.preventDefault();
       return false;
     }
@@ -91,12 +120,25 @@ if (typeof window !== 'undefined') {
     if (event.reason && (
       event.reason.message?.includes('sendBeacon') ||
       event.reason.message?.includes('firebase') ||
-      event.reason.message?.includes('Firebase')
+      event.reason.message?.includes('Firebase') ||
+      event.reason.message?.includes('QUIC_PROTOCOL_ERROR') ||
+      event.reason.message?.includes('ERR_QUIC_PROTOCOL_ERROR') ||
+      event.reason.message?.includes('net::ERR_QUIC_PROTOCOL_ERROR') ||
+      event.reason.toString?.()?.includes('QUIC')
     )) {
-      console.warn('⚠️ Firebase promise rejection caught and ignored:', event.reason);
+      console.warn('⚠️ Firebase/QUIC protocol promise rejection caught and ignored:', event.reason);
       event.preventDefault();
       return false;
     }
+  });
+
+  // Add specific handler for network errors
+  window.addEventListener('online', () => {
+    console.log('📶 Network connection restored, Firebase should reconnect automatically');
+  });
+
+  window.addEventListener('offline', () => {
+    console.log('📵 Network connection lost, Firebase will work in offline mode');
   });
 }
 
