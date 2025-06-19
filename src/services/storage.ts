@@ -47,14 +47,14 @@ class StorageService {
         usersStore.createIndex('email', 'email', { unique: false }); // Changed to non-unique
         usersStore.createIndex('phone', 'phone', { unique: false });
 
-        // Handle groups store - FIXED: Don't recreate if exists, just ensure index
+        // Handle groups store - Create if not exists with proper indexes
         if (!db.objectStoreNames.contains('groups')) {
           const groupsStore = db.createObjectStore('groups', { keyPath: 'id' });
           groupsStore.createIndex('inviteCode', 'inviteCode', { unique: true });
           groupsStore.createIndex('createdBy', 'createdBy', { unique: false });
+          console.log('✅ Created groups store with inviteCode index');
         }
-        // Note: Can't modify existing store indexes during upgrade,
-        // but the manual search fallback in getGroupByInviteCode handles missing indexes
+        // Note: For existing stores, the manual search fallback handles missing indexes
 
         // Handle invitations store - only recreate if needed to fix structure
         if (!db.objectStoreNames.contains('invitations')) {

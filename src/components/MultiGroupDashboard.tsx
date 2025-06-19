@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Trophy, Target, TrendingUp, BarChart3, Settings, UserPlus, Crown, Clock, Activity } from 'lucide-react';
+import { Users, Plus, Trophy, Target, TrendingUp, BarChart3, Settings, UserPlus, Crown, Clock, Activity, Share2, Calendar, Zap, Sparkles, ExternalLink, QrCode, Copy, MessageSquare } from 'lucide-react';
 import { Group, User } from '../types/auth';
 import { Player, Match } from '../types/cricket';
 import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
 import { GroupSelector } from './GroupSelector';
+import GroupShareModal from './GroupShareModal';
 
 interface MultiGroupDashboardProps {
   onNavigate: (destination: string) => void;
@@ -41,6 +42,7 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
   const [groupDescription, setGroupDescription] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
 
   useEffect(() => {
     loadDashboardData();
@@ -328,6 +330,15 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-gray-900">All Your Groups</h2>
             <div className="flex space-x-3">
+              {currentGroup && (
+                <button
+                  onClick={() => setShowShareModal(true)}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2 rounded-lg hover:from-purple-700 hover:to-pink-700 transition-all duration-300 flex items-center space-x-2 shadow-lg"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>Share Current Group</span>
+                </button>
+              )}
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2"
@@ -552,6 +563,15 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
             </form>
           </div>
         </div>
+      )}
+
+      {/* Group Share Modal */}
+      {showShareModal && currentGroup && (
+        <GroupShareModal
+          group={currentGroup}
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
     </div>
   );

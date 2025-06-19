@@ -16,6 +16,7 @@ import { authService } from './services/authService';
 import { userCloudSyncService } from './services/userCloudSyncService';
 import { StorageCleanup } from './services/storageCleanup';
 import { PDFService } from './services/pdfService';
+import LinkJoinService from './services/linkJoinService';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
 import './services/inviteCodeDebugger'; // Debug utilities - Updated with comprehensive search functions - Updated with new functions
@@ -42,6 +43,9 @@ function App() {
 
   useEffect(() => {
     initializeApp();
+    
+    // Check for join link in URL
+    checkForJoinLink();
     
     // CRITICAL FIX: Add timeout to prevent infinite loading
     const initTimeout = setTimeout(() => {
@@ -343,6 +347,9 @@ function App() {
         }
       }
       
+      // Handle any pending join links after authentication
+      await handlePendingJoinAfterAuth();
+      
     } catch (error) {
       console.error('⚠️ Background group loading failed (non-critical):', error);
       // Don't show error to user as this is background operation
@@ -430,6 +437,68 @@ function App() {
       }
     } catch (error) {
       console.error('❌ Error checking for active matches:', error);
+    }
+  };
+
+  const checkForJoinLink = async () => {
+    const joinToken = LinkJoinService.checkForJoinTokenInURL();
+    
+    if (joinToken) {
+      console.log('🔗 Join link detected in URL');
+      
+      // Clear the URL parameter for better UX
+      const url = new URL(window.location.href);
+      url.searchParams.delete('join');
+      window.history.replaceState({}, '', url.toString());
+      
+      try {
+        // If user is not logged in, show auth modal first
+        if (!currentUser) {
+          console.log('👤 User not logged in, showing auth modal first');
+          setShowAuthModal(true);
+          // Store the join token for after authentication
+          localStorage.setItem('pendingJoinToken', joinToken);
+          return;
+        }
+        
+        // Try to join the group
+        const group = await LinkJoinService.joinGroupByLink(joinToken);
+        console.log('✅ Successfully joined group via link:', group.name);
+        
+        // Show success message
+        alert(`🎉 Welcome to "${group.name}"!\n\nYou've successfully joined the group and can now participate in matches.`);
+        
+        // Navigate to group management or dashboard
+        setCurrentGroup(group);
+        setCurrentState('multi-group-dashboard');
+        
+      } catch (error) {
+        console.error('❌ Failed to join group via link:', error);
+        alert(`❌ Failed to join group: ${error instanceof Error ? error.message : 'Unknown error'}\n\nPlease try asking for a new join link.`);
+      }
+    }
+  };
+
+  const handlePendingJoinAfterAuth = async () => {
+    const pendingJoinToken = localStorage.getItem('pendingJoinToken');
+    
+    if (pendingJoinToken) {
+      localStorage.removeItem('pendingJoinToken');
+      console.log('🔗 Processing pending join link after authentication');
+      
+      try {
+        const group = await LinkJoinService.joinGroupByLink(pendingJoinToken);
+        console.log('✅ Successfully joined group after auth:', group.name);
+        
+        alert(`🎉 Welcome to "${group.name}"!\n\nYou've successfully joined the group and can now participate in matches.`);
+        
+        setCurrentGroup(group);
+        setCurrentState('multi-group-dashboard');
+        
+      } catch (error) {
+        console.error('❌ Failed to join group after auth:', error);
+        alert(`❌ Failed to join group: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   };
 

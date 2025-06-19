@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Plus, Share2, Settings, Crown, UserPlus, Copy, Check, Phone, Mail, Link, Eye, UserCheck, AlertCircle, X, MessageCircle, FileText, Upload, Download, Edit, Trash2, Star } from 'lucide-react';
+import { Users, Plus, Share2, Settings, Crown, UserPlus, Copy, Check, Phone, Mail, Link, Eye, UserCheck, AlertCircle, X, MessageCircle, FileText, Upload, Download, Edit, Trash2, Star, ExternalLink, CheckCircle, Globe, RefreshCw, Shield, Activity } from 'lucide-react';
 import { Group, User } from '../types/auth';
 import { Player } from '../types/cricket';
 import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
 import { AddPlayerModal } from './AddPlayerModal';
 import { cloudStorageService } from '../services/cloudStorageService';
+import GroupShareModal from './GroupShareModal';
 
 interface GroupManagementProps {
   onBack: () => void;
@@ -37,6 +38,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   const [importStep, setImportStep] = useState<'input' | 'preview' | 'importing'>('input');
   const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [showShareModal, setShowShareModal] = useState(false);
 
   useEffect(() => {
     loadGroupData();
@@ -872,54 +874,107 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               </div>
             </div>
 
-            {/* Sharing Section */}
+            {/* Modern Sharing Section */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">Share & Invite</h3>
               
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Invite Code
-                  </label>
+                {/* Modern Link & QR Sharing */}
+                <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-xl p-6 border border-green-200">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="text-lg font-semibold text-gray-900">🚀 New & Improved Sharing</h4>
+                      <p className="text-sm text-gray-600">Share join links and QR codes - much easier than typing codes!</p>
+                    </div>
+                    <ExternalLink className="w-8 h-8 text-green-600" />
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                    <div className="bg-white rounded-lg p-4 border border-green-200 text-center">
+                      <ExternalLink className="w-6 h-6 text-green-600 mx-auto mb-2" />
+                      <div className="text-sm font-medium text-green-800">One-Click Links</div>
+                      <div className="text-xs text-green-600">Click to join instantly</div>
+                    </div>
+                    
+                    <div className="bg-white rounded-lg p-4 border border-purple-200 text-center">
+                      <Globe className="w-6 h-6 text-purple-600 mx-auto mb-2" />
+                      <div className="text-sm font-medium text-purple-800">QR Codes</div>
+                      <div className="text-xs text-purple-600">Scan with phone camera</div>
+                    </div>
+                    
+                    <div className="bg-white rounded-lg p-4 border border-blue-200 text-center">
+                      <Shield className="w-6 h-6 text-blue-600 mx-auto mb-2" />
+                      <div className="text-sm font-medium text-blue-800">Secure</div>
+                      <div className="text-xs text-blue-600">Auto-expire in 24h</div>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={() => setShowShareModal(true)}
+                    className="w-full bg-gradient-to-r from-green-600 to-blue-600 text-white py-3 px-6 rounded-lg hover:from-green-700 hover:to-blue-700 transition-all duration-300 font-medium flex items-center justify-center space-x-2"
+                  >
+                    <Share2 className="w-5 h-5" />
+                    <span>Share Group - Links & QR Codes</span>
+                  </button>
+                </div>
+
+                {/* Fallback: Traditional Invite Code */}
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-800">🔢 Traditional Method</h4>
+                      <p className="text-xs text-gray-600">Backup option - if links don't work</p>
+                    </div>
+                    <Copy className="w-5 h-5 text-gray-500" />
+                  </div>
+                  
                   <div className="flex items-center space-x-2">
                     <input
                       type="text"
                       value={currentGroup.inviteCode}
                       readOnly
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 font-mono"
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-white font-mono text-center text-lg font-bold tracking-wider"
                     />
                     <button
                       onClick={() => copyToClipboard(currentGroup.inviteCode)}
-                      className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                      className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                      title="Copy invite code"
                     >
                       {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Share this code with new players to join the group
+                  <p className="text-xs text-gray-500 mt-2 text-center">
+                    6-character code for manual entry in "Join Group"
                   </p>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Guest View Link (Read-Only Access)
-                  </label>
+                {/* Guest View Link */}
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-blue-800">👁️ Guest View</h4>
+                      <p className="text-xs text-blue-600">Read-only access to group stats</p>
+                    </div>
+                    <Eye className="w-5 h-5 text-blue-500" />
+                  </div>
+                  
                   <div className="flex items-center space-x-2">
                     <input
                       type="text"
                       value={guestLink}
                       readOnly
-                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                      className="flex-1 px-3 py-2 border border-blue-300 rounded-lg bg-white text-sm"
                     />
                     <button
                       onClick={() => copyToClipboard(guestLink)}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                      title="Copy guest link"
                     >
                       {copied ? <Check className="w-4 h-4" /> : <Link className="w-4 h-4" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Anyone with this link can view group stats without signing up
+                  <p className="text-xs text-gray-500 mt-2">
+                    Anyone can view stats without signing up or joining
                   </p>
                 </div>
               </div>
@@ -1490,6 +1545,15 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Group Share Modal */}
+      {showShareModal && currentGroup && (
+        <GroupShareModal
+          group={currentGroup}
+          isOpen={showShareModal}
+          onClose={() => setShowShareModal(false)}
+        />
       )}
     </div>
   );

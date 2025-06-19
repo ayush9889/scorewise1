@@ -114,12 +114,77 @@ export class InviteCodeDebugger {
     
     console.log('🧪 === END TEST ===');
   }
+
+  static async resetDatabase(): Promise<void> {
+    console.log('🔄 === DATABASE RESET SESSION ===');
+    console.log('⚠️ This will clear all local data and rebuild the database with proper indexes');
+    
+    try {
+      // Get all current data before clearing
+      const backupData = {
+        groups: await storageService.getAllGroups(),
+        players: await storageService.getAllPlayers(),
+        matches: await storageService.getAllMatches(),
+        users: await storageService.getAllUsers()
+      };
+      
+      console.log('📦 Backing up:', backupData.groups.length, 'groups,', 
+                 backupData.players.length, 'players,', 
+                 backupData.matches.length, 'matches,',
+                 backupData.users.length, 'users');
+      
+      // Clear all data
+      await storageService.clearAllData();
+      console.log('🗑️ Cleared all local data');
+      
+      // Reinitialize database
+      await storageService.init();
+      console.log('🔄 Reinitialized database with proper indexes');
+      
+      // Restore data
+      console.log('📥 Restoring data...');
+      
+      // Restore users first
+      for (const user of backupData.users) {
+        await storageService.saveUser(user);
+      }
+      console.log('✅ Restored', backupData.users.length, 'users');
+      
+      // Restore groups
+      for (const group of backupData.groups) {
+        await storageService.saveGroup(group);
+        console.log(`✅ Restored group: ${group.name} (${group.inviteCode})`);
+      }
+      console.log('✅ Restored', backupData.groups.length, 'groups');
+      
+      // Restore players
+      for (const player of backupData.players) {
+        await storageService.savePlayer(player);
+      }
+      console.log('✅ Restored', backupData.players.length, 'players');
+      
+      // Restore matches
+      for (const match of backupData.matches) {
+        await storageService.saveMatch(match);
+      }
+      console.log('✅ Restored', backupData.matches.length, 'matches');
+      
+      console.log('🎉 Database reset complete! All data restored with proper indexes.');
+      
+    } catch (error) {
+      console.error('❌ Database reset failed:', error);
+      console.log('💡 Try refreshing the page and running troubleshootInviteCode() again');
+    }
+    
+    console.log('🔄 === END RESET SESSION ===');
+  }
 }
 
 // Make functions available globally for console debugging
 (globalThis as any).debugInviteCode = InviteCodeDebugger.debugInviteCode;
 (globalThis as any).fixGroupIndexes = InviteCodeDebugger.fixGroupIndexes;
 (globalThis as any).testGroupCreation = InviteCodeDebugger.testGroupCreation;
+(globalThis as any).resetDatabase = InviteCodeDebugger.resetDatabase;
 
 // Add new global functions for better user experience
 (globalThis as any).searchAllDataSources = searchAllDataSources;
@@ -208,7 +273,7 @@ export async function searchAllDataSources(inviteCode: string): Promise<void> {
         console.log('❌ Not found in IndexedDB');
         // Show all codes for reference
         const allCodes = allGroups.map(g => g.inviteCode).filter(Boolean);
-        console.log('📋 Available codes in IndexedDB:', allCodes);
+        console.log('�� Available codes in IndexedDB:', allCodes);
       }
     } catch (error) {
       console.error('❌ IndexedDB search failed:', error);
