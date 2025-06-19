@@ -89,8 +89,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     setError('');
 
     try {
-      console.log('🤝 Joining group with code:', inviteCode);
-      const group = await authService.joinGroup(inviteCode);
+      console.log('🤝 Joining group with code:', inviteCode.trim().toUpperCase());
+      const group = await authService.joinGroup(inviteCode.trim());
       console.log('✅ Successfully joined group:', group.name);
       
       // CRITICAL FIX: Update the current group state immediately

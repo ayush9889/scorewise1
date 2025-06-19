@@ -204,17 +204,30 @@ function App() {
   };
 
   const handleAuthSuccess = async () => {
-    console.log('🚀 Starting optimized auth success flow...');
+    console.log('🚀 Starting seamless auth success flow...');
     
     // INSTANT UI UPDATE: Get user and update UI immediately
     const user = authService.getCurrentUser();
+    console.log('📱 Current user from authService:', user?.name);
+    
+    // Force React state updates with the latest user data
     setCurrentUser(user);
     setShowAuthModal(false);
+    
+    // Force a re-render to ensure UI updates immediately
+    await new Promise(resolve => {
+      // Use React's scheduling to ensure state updates are processed
+      setCurrentUser(prev => {
+        console.log('🔄 Force updating user state:', user?.name);
+        resolve(null);
+        return user;
+      });
+    });
     
     // Optimistic UI: Show home immediately for better UX
     setCurrentState('home');
     
-    console.log('✅ UI updated immediately for user:', user?.name);
+    console.log('✅ UI updated seamlessly for user:', user?.name);
     
     // BACKGROUND OPERATIONS: Load groups in the background without blocking UI
     try {
@@ -240,7 +253,7 @@ function App() {
       // Don't show error to user as this is background operation
     }
     
-    console.log('🎉 Auth success flow completed');
+    console.log('🎉 Seamless auth success flow completed');
   };
 
   const handleSignOut = async () => {

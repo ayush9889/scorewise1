@@ -450,26 +450,50 @@ class AuthService {
       }
     };
 
-    await storageService.saveUserProfile(user);
+    // INSTANT UPDATE: Set current user immediately for seamless UX
     this.currentUser = user;
+    
+    // CRITICAL: Persist to localStorage immediately for instant access
     localStorage.setItem('currentUser', JSON.stringify(user));
-    console.log('📧 Email user profile created:', email);
+    console.log('✅ User session saved to localStorage immediately');
+    
+    // Background save to storage service with comprehensive profile
+    storageService.saveUserProfile(user).catch(error => {
+      console.warn('⚠️ Background user profile save failed:', error);
+    });
+    
+    console.log('📧 Email user profile created seamlessly:', email);
     return user;
   }
 
   async signInWithEmail(email: string, password: string): Promise<User> {
-    const user = await storageService.getUserByEmail(email);
+    const user = await storageService.getUserProfileByIdentifier(email);
     if (!user) {
       throw new Error('No account found with this email address');
     }
 
     // For now, we'll use simple password validation
     // In production, you'd use proper password hashing
-    this.currentUser = user;
     user.lastLoginAt = Date.now();
-    await storageService.saveUser(user);
+    
+    // INSTANT UPDATE: Set current user immediately for seamless UX
+    this.currentUser = user;
+    
+    // CRITICAL: Persist to localStorage immediately for instant access
     localStorage.setItem('currentUser', JSON.stringify(user));
-    console.log('📧 Email sign-in successful:', email);
+    console.log('✅ User session saved to localStorage immediately');
+    
+    // Background save to storage service with comprehensive profile
+    storageService.saveUserProfile(user).catch(error => {
+      console.warn('⚠️ Background user profile save failed:', error);
+    });
+    
+    // Load user's groups in background
+    this.loadUserGroups().catch(error => {
+      console.warn('⚠️ Background group loading failed:', error);
+    });
+    
+    console.log('📧 Email sign-in completed seamlessly:', email);
     return user;
   }
 
@@ -608,9 +632,17 @@ class AuthService {
       }
     };
 
-    await storageService.saveUserProfile(user);
-    
+    // INSTANT UPDATE: Set current user immediately for seamless UX
     this.currentUser = user;
+    
+    // CRITICAL: Persist to localStorage immediately for instant access
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    console.log('✅ User session saved to localStorage immediately');
+    
+    // Background save to storage service with comprehensive profile
+    storageService.saveUserProfile(user).catch(error => {
+      console.warn('⚠️ Background user profile save failed:', error);
+    });
     
     // CRITICAL: Persist to localStorage immediately
     localStorage.setItem('currentUser', JSON.stringify(user));
@@ -700,6 +732,7 @@ class AuthService {
       throw new Error('Must be logged in to create a group');
     }
 
+    const inviteCode = this.generateInviteCode();
     const group: Group = {
       id: `group_${Date.now()}`,
       name,
@@ -719,7 +752,7 @@ class AuthService {
         }
       }],
       isPublic: false,
-      inviteCode: this.generateInviteCode(),
+      inviteCode,
       settings: {
         allowPublicJoin: false,
         requireApproval: true,
@@ -728,7 +761,9 @@ class AuthService {
       }
     };
 
+    console.log('💾 Saving group with invite code:', inviteCode);
     await storageService.saveGroup(group);
+    console.log('✅ Group saved successfully:', group.name);
     
     // Add group to user's group list
     if (!this.currentUser.groupIds) {
@@ -786,9 +821,19 @@ class AuthService {
       throw new Error('Must be logged in to join a group');
     }
 
-    const group = await storageService.getGroupByInviteCode(inviteCode);
+    // Clean and normalize invite code
+    const cleanInviteCode = inviteCode.trim().toUpperCase();
+    console.log('🔍 Looking for group with invite code:', cleanInviteCode);
+    
+    const group = await storageService.getGroupByInviteCode(cleanInviteCode);
     if (!group) {
-      throw new Error('Invalid invite code');
+      // Additional debugging - let's check all groups
+      const allGroups = await storageService.getAllGroups();
+      console.log('🔍 All available groups and their invite codes:');
+      allGroups.forEach(g => {
+        console.log(`- ${g.name}: ${g.inviteCode} (${g.inviteCode === cleanInviteCode ? 'MATCH' : 'NO MATCH'})`);
+      });
+      throw new Error('Invalid invite code. Please check the code and try again.');
     }
 
     // Check if user is already a member
@@ -966,7 +1011,14 @@ class AuthService {
   }
 
   private generateInviteCode(): string {
-    return Math.random().toString(36).substring(2, 8).toUpperCase();
+    // Generate a more reliable 6-character code
+    let code = '';
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    for (let i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    console.log('🎲 Generated new invite code:', code);
+    return code;
   }
 
   // Utility methods

@@ -137,12 +137,15 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
     setError('');
 
     try {
+      console.log('🤝 Attempting to join group with code:', inviteCode.trim().toUpperCase());
       const group = await authService.joinGroup(inviteCode.trim());
       await loadDashboardData(); // Refresh data
       setShowJoinModal(false);
       setInviteCode('');
       setCurrentGroup(group); // Switch to joined group
+      console.log('✅ Successfully joined group:', group.name);
     } catch (err) {
+      console.error('❌ Failed to join group:', err);
       setError(err instanceof Error ? err.message : 'Failed to join group');
     } finally {
       setLoading(false);
@@ -500,9 +503,10 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
                 <input
                   type="text"
                   value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                  placeholder="Enter invite code"
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent font-mono"
+                  placeholder="Enter 6-character invite code"
+                  maxLength={6}
                   required
                 />
               </div>
@@ -533,4 +537,4 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
       )}
     </div>
   );
-}; 
+};

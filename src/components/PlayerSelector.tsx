@@ -357,10 +357,10 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 animate-fadeIn">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] flex flex-col modal-performance no-flicker animate-slideUp">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 animate-fadeIn">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[95vh] sm:max-h-[90vh] flex flex-col modal-performance no-flicker animate-slideUp">
         {/* Header - Fixed */}
-        <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-6 text-white rounded-t-2xl flex-shrink-0">
+        <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-4 sm:p-6 text-white rounded-t-2xl flex-shrink-0">
           <div className="flex justify-between items-center">
             <div>
               <h2 className="text-xl font-bold">{title}</h2>

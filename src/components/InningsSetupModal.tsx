@@ -216,9 +216,9 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
   // No loading spinner needed since we show match players instantly
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 animate-fadeIn">
-      <div className="bg-white rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto transform transition-all duration-200 animate-slideUp">
-        <div className="p-6 border-b border-gray-200">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-2 sm:p-4 z-50 animate-fadeIn">
+      <div className="bg-white rounded-2xl w-full max-w-md max-h-[95vh] sm:max-h-[90vh] overflow-y-auto transform transition-all duration-200 animate-slideUp">
+        <div className="p-4 sm:p-6 border-b border-gray-200">
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-bold text-gray-900">
               {isSecondInnings ? 'Second Innings Setup' : 'First Innings Setup'}
@@ -242,7 +242,7 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
           )}
         </div>
 
-        <div className="p-6 space-y-6">
+        <div className="p-4 sm:p-6 space-y-4 sm:space-y-6">
           {isSecondInnings && match.firstInningsScore && (
             <div className="bg-gradient-to-r from-orange-50 to-red-50 rounded-lg p-4 border border-orange-200">
               <div className="flex items-center mb-2">
@@ -277,25 +277,26 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
                   type: 'striker',
                   title: 'Select Opening Batsman (Striker)'
                 })}
-                className={`w-full p-4 rounded-lg border-2 transition-all ${
+                className={`w-full p-3 sm:p-4 rounded-lg border-2 transition-all touch-manipulation active:scale-95 ${
                   striker
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-300 hover:border-green-300'
+                    ? 'border-green-500 bg-green-50 shadow-md'
+                    : 'border-gray-300 hover:border-green-300 hover:bg-green-50'
                 }`}
+                type="button"
               >
                 <div className="text-left">
-                  <div className="font-semibold text-gray-900">
-                    {striker ? striker.name : 'Select Striker'}
+                  <div className="font-semibold text-gray-900 text-sm sm:text-base">
+                    {striker ? striker.name : '🏏 Select Striker'}
                   </div>
                   {striker ? (
-                    <div className="text-sm text-green-600">
+                    <div className="text-xs sm:text-sm text-green-600 mt-1">
                       ✓ {striker.stats.runsScored} runs • {striker.stats.matchesPlayed} matches
                       {striker.isGroupMember && isGroupMatch && (
                         <span className="ml-2 text-purple-600">👑 Group Member</span>
                       )}
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">
+                    <div className="text-xs sm:text-sm text-gray-500 mt-1">
                       Tap to select opening batsman (on strike)
                     </div>
                   )}
@@ -313,25 +314,26 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
                   type: 'nonStriker',
                   title: 'Select Opening Batsman (Non-Striker)'
                 })}
-                className={`w-full p-4 rounded-lg border-2 transition-all ${
+                className={`w-full p-3 sm:p-4 rounded-lg border-2 transition-all touch-manipulation active:scale-95 ${
                   nonStriker
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-300 hover:border-blue-300'
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
+                    : 'border-gray-300 hover:border-blue-300 hover:bg-blue-50'
                 }`}
+                type="button"
               >
                 <div className="text-left">
-                  <div className="font-semibold text-gray-900">
-                    {nonStriker ? nonStriker.name : 'Select Non-Striker'}
+                  <div className="font-semibold text-gray-900 text-sm sm:text-base">
+                    {nonStriker ? nonStriker.name : '🏏 Select Non-Striker'}
                   </div>
                   {nonStriker ? (
-                    <div className="text-sm text-blue-600">
+                    <div className="text-xs sm:text-sm text-blue-600 mt-1">
                       ✓ {nonStriker.stats.runsScored} runs • {nonStriker.stats.matchesPlayed} matches
                       {nonStriker.isGroupMember && isGroupMatch && (
                         <span className="ml-2 text-purple-600">👑 Group Member</span>
                       )}
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">
+                    <div className="text-xs sm:text-sm text-gray-500 mt-1">
                       Tap to select opening batsman (not on strike)
                     </div>
                   )}
@@ -345,29 +347,33 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
                 Opening Bowler *
               </label>
               <button
-                onClick={() => setShowPlayerSelector({
-                  type: 'bowler',
-                  title: 'Select Opening Bowler'
-                })}
-                className={`w-full p-4 rounded-lg border-2 transition-all ${
+                onClick={() => {
+                  console.log('🔧 BOWLER SELECTION BUTTON CLICKED');
+                  setShowPlayerSelector({
+                    type: 'bowler',
+                    title: 'Select Opening Bowler'
+                  });
+                }}
+                className={`w-full p-3 sm:p-4 rounded-lg border-2 transition-all touch-manipulation active:scale-95 ${
                   bowler
-                    ? 'border-red-500 bg-red-50'
-                    : 'border-gray-300 hover:border-red-300'
+                    ? 'border-red-500 bg-red-50 shadow-md'
+                    : 'border-gray-300 hover:border-red-300 hover:bg-red-50'
                 }`}
+                type="button"
               >
                 <div className="text-left">
-                  <div className="font-semibold text-gray-900">
-                    {bowler ? bowler.name : 'Select Bowler'}
+                  <div className="font-semibold text-gray-900 text-sm sm:text-base">
+                    {bowler ? bowler.name : '🏏 Select Bowler'}
                   </div>
                   {bowler ? (
-                    <div className="text-sm text-red-600">
+                    <div className="text-xs sm:text-sm text-red-600 mt-1">
                       ✓ {bowler.stats.wicketsTaken} wickets • {bowler.stats.matchesPlayed} matches
                       {bowler.isGroupMember && isGroupMatch && (
                         <span className="ml-2 text-purple-600">👑 Group Member</span>
                       )}
                     </div>
                   ) : (
-                    <div className="text-sm text-gray-500">
+                    <div className="text-xs sm:text-sm text-gray-500 mt-1">
                       Tap to select opening bowler
                     </div>
                   )}
@@ -395,24 +401,28 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <div className="flex flex-col sm:flex-row sm:justify-end space-y-2 sm:space-y-0 sm:space-x-3 pt-4 border-t border-gray-200">
             <button
               onClick={onClose}
-              className="px-6 py-3 text-gray-600 hover:text-gray-800 font-medium transition-colors"
+              className="w-full sm:w-auto px-4 sm:px-6 py-3 text-gray-600 hover:text-gray-800 font-medium transition-colors rounded-lg border border-gray-300 hover:bg-gray-50"
+              type="button"
             >
               Cancel
             </button>
             <button
               onClick={() => handleInningsSetup(striker, nonStriker, bowler)}
               disabled={!canComplete}
-              className={`px-6 py-3 rounded-lg font-semibold transition-all flex items-center ${
+              className={`w-full sm:w-auto px-4 sm:px-6 py-3 rounded-lg font-semibold transition-all flex items-center justify-center touch-manipulation ${
                 canComplete
-                  ? 'bg-green-600 text-white hover:bg-green-700 shadow-lg hover:shadow-xl'
+                  ? 'bg-green-600 text-white hover:bg-green-700 shadow-lg hover:shadow-xl active:scale-95'
                   : 'bg-gray-300 text-gray-500 cursor-not-allowed'
               }`}
+              type="button"
             >
               <Play className="w-4 h-4 mr-2" />
-              {isSecondInnings ? 'Start Second Innings' : 'Start Match'}
+              <span className="text-sm sm:text-base">
+                {isSecondInnings ? 'Start Second Innings' : 'Start Match'}
+              </span>
             </button>
           </div>
 

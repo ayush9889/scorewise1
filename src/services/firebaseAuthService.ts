@@ -185,8 +185,13 @@ class FirebaseAuthService {
       
       console.log('✅ Google sign-in successful:', firebaseUser.email);
       
-      // The auth state listener will handle user creation/update
+      // Handle user creation/update immediately for seamless experience
       const user = await this.handleFirebaseUser(firebaseUser);
+      
+      // Ensure authService has the current user immediately
+      const { authService } = await import('./authService');
+      authService.setCurrentUser(user);
+      console.log('✅ User set in authService immediately:', user.name);
       
       return user;
     } catch (error) {

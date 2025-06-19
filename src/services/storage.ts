@@ -362,13 +362,21 @@ class StorageService {
   async saveGroup(group: Group): Promise<void> {
     if (!this.db) throw new Error('Database not initialized');
 
+    console.log('💾 Storage: Saving group with invite code:', group.inviteCode);
+
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['groups'], 'readwrite');
       const store = transaction.objectStore('groups');
       const request = store.put(group);
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onerror = () => {
+        console.error('❌ Storage: Failed to save group:', request.error);
+        reject(request.error);
+      };
+      request.onsuccess = () => {
+        console.log('✅ Storage: Group saved successfully:', group.name);
+        resolve();
+      };
     });
   }
 
@@ -388,14 +396,38 @@ class StorageService {
   async getGroupByInviteCode(inviteCode: string): Promise<Group | null> {
     if (!this.db) throw new Error('Database not initialized');
 
+    // Clean and normalize the invite code
+    const cleanInviteCode = inviteCode.trim().toUpperCase();
+    console.log('📊 Storage: Searching for invite code:', cleanInviteCode);
+
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['groups'], 'readonly');
       const store = transaction.objectStore('groups');
       const index = store.index('inviteCode');
-      const request = index.get(inviteCode);
+      const request = index.get(cleanInviteCode);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result || null);
+      request.onsuccess = () => {
+        const result = request.result;
+        console.log('📊 Storage: Found group:', result ? result.name : 'None');
+        
+        // If not found using index, try manual search as fallback
+        if (!result) {
+          console.log('📊 Storage: Index search failed, trying manual search...');
+          const getAllRequest = store.getAll();
+          getAllRequest.onsuccess = () => {
+            const allGroups = getAllRequest.result;
+            const foundGroup = allGroups.find(group => 
+              group.inviteCode && group.inviteCode.trim().toUpperCase() === cleanInviteCode
+            );
+            console.log('📊 Storage: Manual search result:', foundGroup ? foundGroup.name : 'None');
+            resolve(foundGroup || null);
+          };
+          getAllRequest.onerror = () => reject(getAllRequest.error);
+        } else {
+          resolve(result);
+        }
+      };
     });
   }
 

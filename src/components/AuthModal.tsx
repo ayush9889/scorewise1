@@ -43,6 +43,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         console.log('✅ Email sign-in successful');
       }
       
+      // Add a small delay to ensure all state is updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
       // Immediate success callback
       onSuccess();
       
@@ -60,8 +63,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       console.log('🚀 Starting Google authentication...');
-      await firebaseAuthService.signInWithGoogle();
+      const user = await firebaseAuthService.signInWithGoogle();
       console.log('✅ Google authentication successful');
+      
+      // Ensure the user is set in authService
+      authService.setCurrentUser(user);
+      
+      // Add a small delay to ensure all state is updated
+      await new Promise(resolve => setTimeout(resolve, 200));
       
       // Immediate success callback
       onSuccess();

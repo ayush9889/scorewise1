@@ -811,22 +811,22 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
-      <div className="bg-white shadow-sm p-2 flex items-center justify-between">
+      <div className="bg-white shadow-sm p-2 sm:p-3 flex items-center justify-between">
         <button
           onClick={onBack}
-          className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+          className="p-2 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
         >
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
         
-        <div className="text-center">
-          <h1 className="font-bold text-base text-gray-900">Live Scorer</h1>
+        <div className="text-center min-w-0 flex-1 mx-2">
+          <h1 className="font-bold text-sm sm:text-base text-gray-900 truncate">Live Scorer</h1>
           {match.isStandalone && (
-            <p className="text-xs text-orange-600">Standalone Match</p>
+            <p className="text-xs text-orange-600 truncate">Standalone Match</p>
           )}
         </div>
         
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-1 sm:space-x-2">
           {/* Connection Status */}
           <div className={`p-1 rounded-lg ${isOnline ? 'text-green-600' : 'text-red-600'}`}>
             {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
@@ -841,7 +841,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           <button
             onClick={handleManualSave}
             disabled={isSaving}
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
             title="Manual Save"
           >
             <Save className={`w-4 h-4 text-gray-600 ${isSaving ? 'animate-pulse' : ''}`} />
@@ -896,7 +896,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
 
           <button
             onClick={() => setShowMenu(!showMenu)}
-            className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+            className="p-1 sm:p-2 hover:bg-gray-100 rounded-lg transition-colors touch-manipulation"
           >
             <Menu className="w-5 h-5 text-gray-600" />
           </button>
@@ -941,27 +941,28 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
 
       {/* CRITICAL: Over Complete Message with MANDATORY Bowler Change */}
       {overCompleteMessage && needsBowlerChange && (
-        <div className="bg-red-100 border-l-4 border-red-500 p-3 m-2">
-          <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <AlertCircle className="w-5 h-5 text-red-600 mr-2" />
-            <div>
-              <p className="text-red-700 text-sm font-bold">{overCompleteMessage}</p>
-              <p className="text-red-600 text-xs mt-1 font-semibold">
-                🚫 MANDATORY: Select new bowler to continue. Same bowler CANNOT bowl consecutive overs!
-              </p>
+        <div className="bg-red-100 border-l-4 border-red-500 p-3 m-2 rounded-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
+            <div className="flex items-start sm:items-center">
+              <AlertCircle className="w-5 h-5 text-red-600 mr-2 mt-0.5 sm:mt-0 flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="text-red-700 text-sm font-bold">{overCompleteMessage}</p>
+                <p className="text-red-600 text-xs mt-1 font-semibold">
+                  🚫 MANDATORY: Select new bowler to continue. Same bowler CANNOT bowl consecutive overs!
+                </p>
+              </div>
             </div>
-            </div>
-            {/* Manual trigger button - Fixed to be responsive */}
+            {/* Manual trigger button - Mobile optimized */}
             <button
               onClick={() => {
                 console.log('🔧 MANUAL BOWLER SELECTOR TRIGGER CLICKED');
                 setShowBowlerSelector(true);
                 console.log('🔧 showBowlerSelector set to true');
               }}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 active:bg-red-800 transition-all duration-200 transform hover:scale-105 active:scale-95 font-medium shadow-md"
+              className="w-full sm:w-auto bg-red-600 text-white px-4 py-3 sm:py-2 rounded-lg text-sm font-medium hover:bg-red-700 active:bg-red-800 transition-all duration-200 transform active:scale-95 shadow-md touch-manipulation"
+              type="button"
             >
-              Select Bowler
+              🏏 Select Bowler
             </button>
           </div>
         </div>
@@ -971,15 +972,15 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       <div className="p-2 space-y-2">
         <CompactScoreDisplay match={match} />
         
-        {/* End Innings Button - Prominent position for easy access */}
+        {/* End Innings Button - Mobile optimized */}
         {!match.isCompleted && (
           <div className="bg-gradient-to-r from-orange-100 to-red-100 border border-orange-200 rounded-lg p-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-3 sm:space-y-0">
               <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center">
+                <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-red-500 rounded-full flex items-center justify-center flex-shrink-0">
                   <Trophy className="w-5 h-5 text-white" />
                 </div>
-                <div>
+                <div className="min-w-0 flex-1">
                   <h3 className="font-semibold text-gray-900 text-sm">
                     {match.isSecondInnings ? 'End Match Early?' : 'End First Innings Early?'}
                   </h3>
@@ -990,7 +991,8 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
               </div>
               <button
                 onClick={handleEndInnings}
-                className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-2 rounded-lg font-medium text-sm hover:from-orange-600 hover:to-red-600 transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-md flex items-center space-x-2"
+                className="w-full sm:w-auto bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-3 sm:py-2 rounded-lg font-medium text-sm hover:from-orange-600 hover:to-red-600 transition-all duration-200 transform active:scale-95 shadow-md flex items-center justify-center space-x-2 touch-manipulation"
+                type="button"
               >
                 <Trophy className="w-4 h-4" />
                 <span>{match.isSecondInnings ? 'End Match' : 'End Innings'}</span>
