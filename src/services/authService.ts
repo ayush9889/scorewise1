@@ -485,6 +485,12 @@ class AuthService {
       console.warn('⚠️ Background user profile save failed:', error);
     });
     
+    // CRITICAL: Initialize cloud sync for cross-device functionality
+    const { userCloudSyncService } = await import('./userCloudSyncService');
+    userCloudSyncService.initializeUserSync(user).catch(error => {
+      console.warn('⚠️ Cloud sync initialization failed:', error);
+    });
+    
     console.log('📧 Email user profile created seamlessly:', email);
     return user;
   }
@@ -509,6 +515,12 @@ class AuthService {
     // Background save to storage service with comprehensive profile
     storageService.saveUserProfile(user).catch(error => {
       console.warn('⚠️ Background user profile save failed:', error);
+    });
+    
+    // CRITICAL: Initialize cloud sync for cross-device functionality
+    const { userCloudSyncService } = await import('./userCloudSyncService');
+    userCloudSyncService.initializeUserSync(user).catch(error => {
+      console.warn('⚠️ Cloud sync initialization failed:', error);
     });
     
     // Load user's groups in background

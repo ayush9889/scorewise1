@@ -41,6 +41,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
   }>({ online: false, firebaseWorking: false });
   const [syncing, setSyncing] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(authService.getCurrentUser());
 
   const loadData = useCallback(async () => {
     try {
@@ -339,6 +340,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
       average: totalMatches > 0 ? (totalRuns / totalMatches).toFixed(1) : '0.0',
       motmAwards: playerMatches.filter(m => m.manOfTheMatch?.id === player.id).length
     };
+  };
+
+  const handleManualSync = async () => {
+    if (!currentUser) return;
+    
+    try {
+      console.log('🔄 Manual sync triggered by user');
+      
+      // Import and trigger sync
+      const { userCloudSyncService } = await import('../services/userCloudSyncService');
+      
+      // Force a complete sync
+      await userCloudSyncService.initializeUserSync(currentUser);
+      await userCloudSyncService.performFullSync();
+      
+      console.log('✅ Manual sync completed successfully');
+      alert('✅ Sync completed! Your data has been synchronized across all devices.');
+    } catch (error) {
+      console.error('❌ Manual sync failed:', error);
+      alert('❌ Sync failed: ' + error.message);
+    }
   };
 
   const renderError = () => (
@@ -716,7 +738,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
         </div>
 
         {/* Cloud Sync Status */}
-        <CloudSyncStatus className="mb-8" />
+        {!currentUser?.isGuest && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <CloudSyncStatus />
+            
+            {/* Manual Sync Button for Testing */}
+            <div className="mt-4 pt-4 border-t">
+              <button
+                onClick={handleManualSync}
+                className="w-full bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                🔄 Force Sync Now (Test)
+              </button>
+              <p className="text-xs text-gray-500 mt-2 text-center">
+                Use this button to test cross-device synchronization
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Recent Matches */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-8">
