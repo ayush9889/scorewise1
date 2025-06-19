@@ -133,6 +133,14 @@ function App() {
         await SimpleGroupShare.testJoinProcess();
       };
       
+      (window as any).searchAllClouds = async (inviteCode) => {
+        if (!inviteCode) {
+          console.log('Usage: searchAllClouds("INVITE_CODE")');
+          return;
+        }
+        await SimpleGroupShare.searchAllClouds(inviteCode);
+      };
+      
       (window as any).SimpleGroupShare = SimpleGroupShare;
       
       (window as any).emergencyGroupRecovery = async () => {

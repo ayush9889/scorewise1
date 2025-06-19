@@ -19,10 +19,10 @@ export class SimpleGroupShare {
   
   /**
    * Join a group using an invite code (from URL or manual entry)
-   * SAFE VERSION: Completely avoids the problematic authService.joinGroup method
+   * ENHANCED: Now supports cross-device group discovery
    */
   static async joinGroupByCode(inviteCode: string): Promise<Group> {
-    console.log('🔗 Starting SAFE join process with invite code:', inviteCode);
+    console.log('🔗 Starting ENHANCED cross-device join process with invite code:', inviteCode);
     
     // Clean the invite code
     const cleanCode = inviteCode.trim().toUpperCase();
@@ -34,34 +34,112 @@ export class SimpleGroupShare {
       throw new Error('You must be logged in to join a group');
     }
     
-    // Get all groups for debugging
-    const allGroups = await storageService.getAllGroups();
-    console.log('📊 Total groups available:', allGroups.length);
+    let targetGroup: Group | null = null;
+    
+    // STEP 1: Try to find group locally first
+    console.log('📱 Step 1: Searching local storage...');
+    const localGroups = await storageService.getAllGroups();
+    console.log('📊 Total local groups available:', localGroups.length);
+    
+    targetGroup = localGroups.find(group => group.inviteCode === cleanCode);
+    
+    if (targetGroup) {
+      console.log('✅ Group found locally:', targetGroup.name);
+    } else {
+      console.log('📱 Group not found locally, checking cloud storage...');
+      
+      // STEP 2: Search cloud storage for cross-device groups
+      try {
+        console.log('☁️ Step 2: Searching cloud storage for cross-device groups...');
+        
+        // Import cloud storage service
+        const { cloudStorageService } = await import('./cloudStorageService');
+        
+        // Check if we can access cloud storage
+        const isCloudAvailable = await this.testCloudConnection();
+        
+        if (isCloudAvailable) {
+          // Search for the group in cloud storage by invite code
+          targetGroup = await this.searchGroupInCloud(cleanCode);
+          
+          if (targetGroup) {
+            console.log('☁️ Group found in cloud storage:', targetGroup.name);
+            
+            // Save the group locally for future access
+            console.log('📥 Downloading group to local storage...');
+            await storageService.saveGroup(targetGroup);
+            console.log('✅ Group downloaded and saved locally');
+          } else {
+            console.log('☁️ Group not found in cloud storage either');
+          }
+        } else {
+          console.log('📵 Cloud storage not available');
+        }
+      } catch (cloudError) {
+        console.warn('⚠️ Cloud search failed:', cloudError);
+      }
+    }
+    
+    // STEP 3: If still not found, try user cloud sync
+    if (!targetGroup) {
+      console.log('🔄 Step 3: Trying user cloud sync to fetch all user groups...');
+      try {
+        const { userCloudSyncService } = await import('./userCloudSyncService');
+        
+        // Force load user data from cloud
+        await userCloudSyncService.loadUserDataFromCloud();
+        console.log('✅ User data loaded from cloud');
+        
+        // Try searching locally again after cloud sync
+        const updatedLocalGroups = await storageService.getAllGroups();
+        targetGroup = updatedLocalGroups.find(group => group.inviteCode === cleanCode);
+        
+        if (targetGroup) {
+          console.log('🔄 Group found after cloud sync:', targetGroup.name);
+        }
+      } catch (syncError) {
+        console.warn('⚠️ User cloud sync failed:', syncError);
+      }
+    }
     
     // Log all available groups for debugging
-    console.log('📋 Available groups:');
-    allGroups.forEach((group, index) => {
+    const allAvailableGroups = await storageService.getAllGroups();
+    console.log('📋 All available groups after search:');
+    allAvailableGroups.forEach((group, index) => {
       console.log(`  ${index + 1}. "${group.name}" - Code: "${group.inviteCode}" - Members: ${group.members?.length || 0}`);
     });
     
-    // Find the group by invite code
-    const targetGroup = allGroups.find(group => group.inviteCode === cleanCode);
-    
     if (!targetGroup) {
       console.error('❌ Group not found with invite code:', cleanCode);
-      console.error('📋 Available codes:', allGroups.map(g => g.inviteCode).join(', '));
+      console.error('📋 Available codes:', allAvailableGroups.map(g => g.inviteCode).join(', '));
       
       throw new Error(`Group not found with invite code "${cleanCode}".
 
-📋 Available Groups: ${allGroups.length}
-🔍 Available Codes: ${allGroups.map(g => g.inviteCode).join(', ')}
+🔍 **Cross-Device Search Results:**
+📱 Local groups: ${localGroups.length}
+☁️ Cloud search: Completed
+🔄 User sync: Completed
+📋 Total available groups: ${allAvailableGroups.length}
+🔑 Available codes: ${allAvailableGroups.map(g => g.inviteCode).join(', ')}
 
-💡 Possible Solutions:
-1. Check if the invite code is correct
-2. Ask the group admin for a new invite code
-3. Try refreshing the page
+💡 **Possible Solutions:**
+1. **Group Creator**: Make sure the group is synced to cloud
+   - Open the group on the original device
+   - Check internet connection
+   - Wait for cloud sync to complete
 
-🛠️ If you're the admin, create a new group and share the new code.`);
+2. **Group Joiner**: Try these steps:
+   - Ensure you have internet connection
+   - Try refreshing the page
+   - Ask the group admin to share the code again
+
+3. **Both Users**: Make sure you're using the same app URL
+
+🛠️ **Debug Commands:**
+- Open console (F12) and run: \`debugJoinIssues()\`
+- Or run: \`SimpleGroupShare.searchAllClouds("${cleanCode}")\`
+
+⚠️ **Note**: Groups created on one device need internet connection to be available on other devices.`);
     }
     
     console.log('✅ Group found:', targetGroup.name);
@@ -73,7 +151,7 @@ export class SimpleGroupShare {
       return targetGroup;
     }
     
-    // SAFE JOIN PROCESS: Create a complete copy of the group to avoid reference issues
+    // Continue with the safe join process (same as before)
     console.log('🔄 Creating safe copy of group for joining...');
     const safeGroupCopy = JSON.parse(JSON.stringify(targetGroup));
     
@@ -149,25 +227,25 @@ export class SimpleGroupShare {
         console.log('✅ User profile updated successfully');
       }
       
-      // Try cloud backup (non-blocking)
-      console.log('☁️ Step 4: Attempting cloud backup...');
+      // ENHANCED: Save to cloud immediately for cross-device sync
+      console.log('☁️ Step 4: Syncing to cloud for cross-device access...');
       try {
-        // Use the cloud storage service for backup (non-blocking)
-        import('../services/cloudStorageService').then(({ cloudStorageService }) => {
-          Promise.all([
-            cloudStorageService.saveGroup(safeGroupCopy).catch(e => console.log('Cloud group save failed:', e)),
-            cloudStorageService.saveUser(currentUser).catch(e => console.log('Cloud user save failed:', e))
-          ]).then(() => {
-            console.log('☁️ Cloud backup completed');
-          }).catch(error => {
-            console.log('☁️ Cloud backup failed (data saved locally):', error);
-          });
-        });
+        const { cloudStorageService } = await import('./cloudStorageService');
+        const { userCloudSyncService } = await import('./userCloudSyncService');
+        
+        // Save the updated group and user to cloud
+        await Promise.all([
+          cloudStorageService.saveGroup(safeGroupCopy),
+          cloudStorageService.saveUser(currentUser),
+          userCloudSyncService.syncUserDataToCloud(true)
+        ]);
+        
+        console.log('☁️ Cross-device sync completed successfully');
       } catch (error) {
-        console.log('☁️ Cloud service unavailable, data saved locally only');
+        console.log('☁️ Cloud sync failed (data saved locally):', error);
       }
       
-      console.log('🎉 Successfully joined group:', safeGroupCopy.name);
+      console.log('🎉 Successfully joined group with cross-device support:', safeGroupCopy.name);
       return safeGroupCopy;
       
     } catch (error) {
@@ -405,6 +483,206 @@ Group ${index + 1}:
       
     } catch (error) {
       console.error('❌ Test failed:', error);
+    }
+  }
+  
+  /**
+   * Test cloud connection availability
+   */
+  static async testCloudConnection(): Promise<boolean> {
+    try {
+      const { cloudStorageService } = await import('./cloudStorageService');
+      await cloudStorageService.checkConnection();
+      return true;
+    } catch (error) {
+      console.log('☁️ Cloud connection test failed:', error);
+      return false;
+    }
+  }
+  
+  /**
+   * Search for a group in cloud storage by invite code
+   */
+  static async searchGroupInCloud(inviteCode: string): Promise<Group | null> {
+    try {
+      console.log('🔍 Searching cloud for group with invite code:', inviteCode);
+      
+      const { cloudStorageService } = await import('./cloudStorageService');
+      
+      // Get all groups from cloud storage
+      const cloudGroups = await cloudStorageService.getUserGroups();
+      console.log('☁️ Found', cloudGroups.length, 'groups in cloud storage');
+      
+      // Search for group with matching invite code
+      const foundGroup = cloudGroups.find(group => group.inviteCode === inviteCode);
+      
+      if (foundGroup) {
+        console.log('✅ Group found in cloud:', foundGroup.name);
+        return foundGroup;
+      } else {
+        console.log('❌ Group not found in cloud storage');
+        
+        // Try a more comprehensive search by querying Firebase directly
+        return await this.searchFirebaseDirectly(inviteCode);
+      }
+    } catch (error) {
+      console.error('❌ Cloud group search failed:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Direct Firebase search for groups (comprehensive search)
+   */
+  static async searchFirebaseDirectly(inviteCode: string): Promise<Group | null> {
+    try {
+      console.log('🔍 Performing direct Firebase search for invite code:', inviteCode);
+      
+      // Import Firebase modules
+      const { db } = await import('../config/firebase');
+      const { collection, query, where, getDocs } = await import('firebase/firestore');
+      
+      // Search in the main groups collection
+      const groupsRef = collection(db, 'groups');
+      const q = query(groupsRef, where('inviteCode', '==', inviteCode));
+      const querySnapshot = await getDocs(q);
+      
+      if (!querySnapshot.empty) {
+        const groupDoc = querySnapshot.docs[0];
+        const groupData = { id: groupDoc.id, ...groupDoc.data() } as Group;
+        console.log('🎯 Group found via direct Firebase search:', groupData.name);
+        return groupData;
+      }
+      
+      // Also search in user_groups collection
+      const userGroupsRef = collection(db, 'user_groups');
+      const userGroupsQuery = query(userGroupsRef);
+      const userGroupsSnapshot = await getDocs(userGroupsQuery);
+      
+      for (const doc of userGroupsSnapshot.docs) {
+        const data = doc.data();
+        if (data.groupData && data.groupData.inviteCode === inviteCode) {
+          console.log('🎯 Group found in user_groups collection:', data.groupData.name);
+          return data.groupData as Group;
+        }
+      }
+      
+      console.log('❌ Group not found in any Firebase collection');
+      return null;
+    } catch (error) {
+      console.error('❌ Direct Firebase search failed:', error);
+      return null;
+    }
+  }
+  
+  /**
+   * Comprehensive search across all cloud sources
+   */
+  static async searchAllClouds(inviteCode: string): Promise<void> {
+    console.log('🔍 === COMPREHENSIVE CLOUD SEARCH ===');
+    console.log('🎯 Searching for invite code:', inviteCode);
+    
+    try {
+      // Test 1: Cloud storage service
+      console.log('\n1️⃣ Testing CloudStorageService...');
+      const cloudResult = await this.searchGroupInCloud(inviteCode);
+      console.log('Result:', cloudResult ? `Found: ${cloudResult.name}` : 'Not found');
+      
+      // Test 2: User cloud sync service
+      console.log('\n2️⃣ Testing UserCloudSyncService...');
+      try {
+        const { userCloudSyncService } = await import('./userCloudSyncService');
+        await userCloudSyncService.loadUserDataFromCloud();
+        const localGroupsAfterSync = await storageService.getAllGroups();
+        const foundAfterSync = localGroupsAfterSync.find(g => g.inviteCode === inviteCode);
+        console.log('Result:', foundAfterSync ? `Found: ${foundAfterSync.name}` : 'Not found');
+      } catch (error) {
+        console.log('UserCloudSyncService failed:', error.message);
+      }
+      
+      // Test 3: Direct Firebase search
+      console.log('\n3️⃣ Testing Direct Firebase Search...');
+      const firebaseResult = await this.searchFirebaseDirectly(inviteCode);
+      console.log('Result:', firebaseResult ? `Found: ${firebaseResult.name}` : 'Not found');
+      
+      // Summary
+      console.log('\n📊 SEARCH SUMMARY:');
+      console.log('- CloudStorageService:', cloudResult ? '✅ Found' : '❌ Not found');
+      console.log('- UserCloudSyncService:', '🔄 Completed');
+      console.log('- Direct Firebase:', firebaseResult ? '✅ Found' : '❌ Not found');
+      
+      const allLocalGroups = await storageService.getAllGroups();
+      console.log('- Total local groups after search:', allLocalGroups.length);
+      
+    } catch (error) {
+      console.error('❌ Comprehensive search failed:', error);
+    }
+  }
+  
+  /**
+   * Ensure a group is synced to cloud for cross-device access
+   * Call this after creating a group to make it available on other devices
+   */
+  static async ensureGroupSyncedToCloud(group: Group): Promise<void> {
+    console.log('☁️ Ensuring group is synced to cloud for cross-device access:', group.name);
+    
+    try {
+      const { cloudStorageService } = await import('./cloudStorageService');
+      const { userCloudSyncService } = await import('./userCloudSyncService');
+      
+      // Save group to multiple cloud locations for maximum accessibility
+      await Promise.all([
+        // Method 1: Direct cloud storage
+        cloudStorageService.saveGroup(group),
+        
+        // Method 2: User cloud sync (for user-specific collections)
+        userCloudSyncService.syncUserDataToCloud(true),
+        
+        // Method 3: Force save to main groups collection
+        this.saveToMainGroupsCollection(group)
+      ]);
+      
+      console.log('✅ Group synced to cloud successfully - now available cross-device');
+      
+      // Verify the sync worked
+      const cloudGroups = await cloudStorageService.getUserGroups();
+      const isInCloud = cloudGroups.some(g => g.id === group.id);
+      
+      if (isInCloud) {
+        console.log('✅ Cloud sync verification passed');
+      } else {
+        console.warn('⚠️ Group sync verification failed - may not be available cross-device');
+      }
+      
+    } catch (error) {
+      console.error('❌ Failed to sync group to cloud:', error);
+      throw new Error(`Failed to sync group to cloud: ${error.message}`);
+    }
+  }
+  
+  /**
+   * Save group directly to main Firebase groups collection
+   */
+  static async saveToMainGroupsCollection(group: Group): Promise<void> {
+    try {
+      console.log('💾 Saving group to main Firebase collection...');
+      
+      const { db } = await import('../config/firebase');
+      const { doc, setDoc, serverTimestamp } = await import('firebase/firestore');
+      
+      const groupRef = doc(db, 'groups', group.id);
+      
+      await setDoc(groupRef, {
+        ...group,
+        lastUpdated: serverTimestamp(),
+        cloudSynced: true,
+        cloudSyncTime: Date.now()
+      }, { merge: true });
+      
+      console.log('✅ Group saved to main Firebase collection');
+    } catch (error) {
+      console.error('❌ Failed to save to main groups collection:', error);
+      // Don't throw - this is a backup method
     }
   }
 } 

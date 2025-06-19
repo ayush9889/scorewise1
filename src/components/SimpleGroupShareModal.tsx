@@ -191,21 +191,39 @@ export const SimpleGroupShareModal: React.FC<SimpleGroupShareModalProps> = ({ gr
               <p>📷 <strong>Option 3:</strong> Scan the QR code with your camera</p>
             </div>
             
-            <button
-              onClick={async () => {
-                try {
-                  console.log('🧪 Testing join process...');
-                  await SimpleGroupShare.testJoinProcess();
-                  alert('✅ Test completed! Check console for results.');
-                } catch (error) {
-                  console.error('Test failed:', error);
-                  alert('❌ Test failed - check console for details');
-                }
-              }}
-              className="mt-3 w-full bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
-            >
-              🧪 Test Join System
-            </button>
+            <div className="mt-3 space-y-2">
+              <button
+                onClick={async () => {
+                  try {
+                    console.log('☁️ Syncing group to cloud for cross-device access...');
+                    await SimpleGroupShare.ensureGroupSyncedToCloud(group);
+                    alert('✅ Group synced to cloud! Now available on other devices.');
+                  } catch (error) {
+                    console.error('Cloud sync failed:', error);
+                    alert('❌ Cloud sync failed - check console for details');
+                  }
+                }}
+                className="w-full bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              >
+                ☁️ Sync to Cloud (Cross-Device)
+              </button>
+              
+              <button
+                onClick={async () => {
+                  try {
+                    console.log('🧪 Testing join process...');
+                    await SimpleGroupShare.testJoinProcess();
+                    alert('✅ Test completed! Check console for results.');
+                  } catch (error) {
+                    console.error('Test failed:', error);
+                    alert('❌ Test failed - check console for details');
+                  }
+                }}
+                className="w-full bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+              >
+                🧪 Test Join System
+              </button>
+            </div>
           </div>
 
           {/* Group Info */}
