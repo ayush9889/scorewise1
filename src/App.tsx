@@ -18,6 +18,7 @@ import { StorageCleanup } from './services/storageCleanup';
 import { PDFService } from './services/pdfService';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
+import './services/inviteCodeDebugger'; // Debug utilities
 
 type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete' | 'multi-group-dashboard';
 

@@ -1109,24 +1109,43 @@ class AuthService {
 
     // Clean and normalize invite code
     const cleanInviteCode = inviteCode.trim().toUpperCase();
-    console.log('🔍 Looking for group with invite code:', cleanInviteCode);
+    console.log('🤝 Attempting to join group with code:', cleanInviteCode);
+    
+    // ENHANCED: First, let's check what groups exist
+    try {
+      const allGroups = await storageService.getAllGroups();
+      console.log('🔍 Total groups in database:', allGroups.length);
+      
+      allGroups.forEach((g, index) => {
+        console.log(`Group ${index + 1}: "${g.name}" - Code: "${g.inviteCode}" ${g.inviteCode === cleanInviteCode ? '✅ MATCH!' : '❌ no match'}`);
+      });
+    } catch (debugError) {
+      console.warn('⚠️ Could not retrieve groups for debugging:', debugError);
+    }
     
     const group = await storageService.getGroupByInviteCode(cleanInviteCode);
     if (!group) {
-      // Additional debugging - let's check all groups
-      const allGroups = await storageService.getAllGroups();
-      console.log('🔍 All available groups and their invite codes:');
-      allGroups.forEach(g => {
-        console.log(`- ${g.name}: ${g.inviteCode} (${g.inviteCode === cleanInviteCode ? 'MATCH' : 'NO MATCH'})`);
-      });
-      throw new Error('Invalid invite code. Please check the code and try again.');
+      // Enhanced error with more helpful information
+      const errorMessage = `Invalid invite code "${cleanInviteCode}". 
+      
+🔍 Troubleshooting:
+• Make sure the code is exactly 6 characters
+• Check that you copied the complete code
+• Verify the group still exists (admin didn't delete it)
+• Try refreshing the page and joining again
+
+💡 Debug: Open browser console (F12) and type: debugInviteCode("${cleanInviteCode}") for detailed analysis.`;
+      
+      throw new Error(errorMessage);
     }
 
     // Check if user is already a member
     const existingMember = group.members.find(m => m.userId === this.currentUser!.id);
     if (existingMember) {
-      throw new Error('Already a member of this group');
+      throw new Error('You are already a member of this group');
     }
+
+    console.log('✅ Group found! Adding user as member and player...');
 
     // Add user as member
     group.members.push({
