@@ -16,10 +16,42 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
+  // Helper method to get correct team for each innings based on toss
+  const getInningsTeams = (innings: number) => {
+    // Determine who batted first based on toss
+    const tossWinnerBattedFirst = match.tossDecision === 'bat';
+    const team1WonToss = match.tossWinner === match.team1.name;
+    
+    let firstInningsBattingTeam, firstInningsBowlingTeam;
+    
+    if ((team1WonToss && tossWinnerBattedFirst) || (!team1WonToss && !tossWinnerBattedFirst)) {
+      // Team 1 batted first
+      firstInningsBattingTeam = match.team1;
+      firstInningsBowlingTeam = match.team2;
+    } else {
+      // Team 2 batted first
+      firstInningsBattingTeam = match.team2;
+      firstInningsBowlingTeam = match.team1;
+    }
+    
+    if (innings === 1) {
+      return {
+        battingTeam: firstInningsBattingTeam,
+        bowlingTeam: firstInningsBowlingTeam
+      };
+    } else {
+      return {
+        battingTeam: firstInningsBowlingTeam,
+        bowlingTeam: firstInningsBattingTeam
+      };
+    }
+  };
+
   const calculateBattingStats = (player: Player, innings: number) => {
+    const { battingTeam } = getInningsTeams(innings);
     const battingBalls = match.balls.filter(b => 
       b.striker.id === player.id && 
-      (innings === 1 ? b.battingTeamId === match.team1.id : b.battingTeamId === match.team2.id)
+      battingTeam.players.some(p => p.id === player.id)
     );
     
     let runs = 0;
@@ -53,9 +85,10 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
   };
 
   const calculateBowlingStats = (player: Player, innings: number) => {
+    const { bowlingTeam } = getInningsTeams(innings);
     const bowlingBalls = match.balls.filter(b => 
       b.bowler.id === player.id && 
-      (innings === 1 ? b.battingTeamId === match.team1.id : b.battingTeamId === match.team2.id)
+      bowlingTeam.players.some(p => p.id === player.id)
     );
     
     let wickets = 0;
@@ -112,10 +145,11 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
   };
 
   const getDismissalInfo = (player: Player, innings: number) => {
+    const { battingTeam } = getInningsTeams(innings);
     const wicketBall = match.balls.find(b => 
       b.isWicket && 
       b.striker.id === player.id && 
-      (innings === 1 ? b.battingTeamId === match.team1.id : b.battingTeamId === match.team2.id)
+      battingTeam.players.some(p => p.id === player.id)
     );
     
     if (wicketBall) {
@@ -143,11 +177,15 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
   // Get match result
   const matchResult = CricketEngine.getMatchResult(match);
 
+  // Get teams for each innings
+  const firstInnings = getInningsTeams(1);
+  const secondInnings = getInningsTeams(2);
+
   // Calculate run rates
-  const team1RunRate = match.team1.overs > 0 ? 
-    ((match.team1.score / (match.team1.overs + match.team1.balls / 6))).toFixed(2) : '0.00';
-  const team2RunRate = match.team2.overs > 0 ? 
-    ((match.team2.score / (match.team2.overs + match.team2.balls / 6))).toFixed(2) : '0.00';
+  const firstInningsRunRate = firstInnings.battingTeam.overs > 0 ? 
+    ((firstInnings.battingTeam.score / (firstInnings.battingTeam.overs + firstInnings.battingTeam.balls / 6))).toFixed(2) : '0.00';
+  const secondInningsRunRate = secondInnings.battingTeam.overs > 0 ? 
+    ((secondInnings.battingTeam.score / (secondInnings.battingTeam.overs + secondInnings.battingTeam.balls / 6))).toFixed(2) : '0.00';
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4">
@@ -187,10 +225,10 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
           <div className="mb-8">
             <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white p-4 rounded-t-lg">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold">{match.team1.name} - 1st Innings</h3>
+                <h3 className="text-xl font-bold">{firstInnings.battingTeam.name} - 1st Innings</h3>
                 <div className="text-right">
-                  <div className="text-2xl font-bold">{match.team1.score}-{match.team1.wickets}</div>
-                  <div className="text-sm">({match.team1.overs}.{match.team1.balls} overs, RR: {team1RunRate})</div>
+                  <div className="text-2xl font-bold">{firstInnings.battingTeam.score}-{firstInnings.battingTeam.wickets}</div>
+                  <div className="text-sm">({firstInnings.battingTeam.overs}.{firstInnings.battingTeam.balls} overs, RR: {firstInningsRunRate})</div>
                 </div>
               </div>
             </div>
@@ -211,7 +249,7 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {match.team1.players.map(player => {
+                    {firstInnings.battingTeam.players.map(player => {
                       const stats = calculateBattingStats(player, 1);
                       if (stats.balls === 0) return null;
                       return (
@@ -234,24 +272,24 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
               <div className="p-4 bg-gray-50 border-t">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">
-                    Extras: (B {match.team1.extras.byes}, LB {match.team1.extras.legByes}, W {match.team1.extras.wides}, NB {match.team1.extras.noBalls})
+                    Extras: (B {firstInnings.battingTeam.extras.byes}, LB {firstInnings.battingTeam.extras.legByes}, W {firstInnings.battingTeam.extras.wides}, NB {firstInnings.battingTeam.extras.noBalls})
                   </span>
                   <span className="font-semibold">
-                    {match.team1.extras.byes + match.team1.extras.legByes + match.team1.extras.wides + match.team1.extras.noBalls}
+                    {firstInnings.battingTeam.extras.byes + firstInnings.battingTeam.extras.legByes + firstInnings.battingTeam.extras.wides + firstInnings.battingTeam.extras.noBalls}
                   </span>
                 </div>
                 <div className="flex justify-between items-center font-bold text-lg">
                   <span>Total</span>
-                  <span>{match.team1.score}-{match.team1.wickets} ({match.team1.overs}.{match.team1.balls} overs)</span>
+                  <span>{firstInnings.battingTeam.score}-{firstInnings.battingTeam.wickets} ({firstInnings.battingTeam.overs}.{firstInnings.battingTeam.balls} overs)</span>
                 </div>
               </div>
 
               {/* Fall of Wickets */}
-              {match.team1.fallOfWickets && match.team1.fallOfWickets.length > 0 && (
+              {firstInnings.battingTeam.fallOfWickets && firstInnings.battingTeam.fallOfWickets.length > 0 && (
                 <div className="p-4 border-t">
                   <h4 className="font-semibold text-gray-800 mb-2">Fall of Wickets</h4>
                   <div className="text-sm text-gray-600 space-y-1">
-                    {match.team1.fallOfWickets.map((fall, index) => (
+                    {firstInnings.battingTeam.fallOfWickets.map((fall, index) => (
                       <div key={index}>
                         {fall.wicketNumber}-{fall.score} ({fall.batsman}, {fall.over} ov)
                       </div>
@@ -276,7 +314,7 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {match.team2.players.map(player => {
+                      {firstInnings.bowlingTeam.players.map(player => {
                         const stats = calculateBowlingStats(player, 1);
                         if (parseFloat(stats.overs) === 0) return null;
                         return (
@@ -301,10 +339,10 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
           <div className="mb-6">
             <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white p-4 rounded-t-lg">
               <div className="flex justify-between items-center">
-                <h3 className="text-xl font-bold">{match.team2.name} - 2nd Innings</h3>
+                <h3 className="text-xl font-bold">{secondInnings.battingTeam.name} - 2nd Innings</h3>
                 <div className="text-right">
-                  <div className="text-2xl font-bold">{match.team2.score}-{match.team2.wickets}</div>
-                  <div className="text-sm">({match.team2.overs}.{match.team2.balls} overs, RR: {team2RunRate})</div>
+                  <div className="text-2xl font-bold">{secondInnings.battingTeam.score}-{secondInnings.battingTeam.wickets}</div>
+                  <div className="text-sm">({secondInnings.battingTeam.overs}.{secondInnings.battingTeam.balls} overs, RR: {secondInningsRunRate})</div>
                 </div>
               </div>
               {match.firstInningsScore && (
@@ -330,7 +368,7 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {match.team2.players.map(player => {
+                    {secondInnings.battingTeam.players.map(player => {
                       const stats = calculateBattingStats(player, 2);
                       if (stats.balls === 0) return null;
                       return (
@@ -353,24 +391,24 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
               <div className="p-4 bg-gray-50 border-t">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-gray-700">
-                    Extras: (B {match.team2.extras.byes}, LB {match.team2.extras.legByes}, W {match.team2.extras.wides}, NB {match.team2.extras.noBalls})
+                    Extras: (B {secondInnings.battingTeam.extras.byes}, LB {secondInnings.battingTeam.extras.legByes}, W {secondInnings.battingTeam.extras.wides}, NB {secondInnings.battingTeam.extras.noBalls})
                   </span>
                   <span className="font-semibold">
-                    {match.team2.extras.byes + match.team2.extras.legByes + match.team2.extras.wides + match.team2.extras.noBalls}
+                    {secondInnings.battingTeam.extras.byes + secondInnings.battingTeam.extras.legByes + secondInnings.battingTeam.extras.wides + secondInnings.battingTeam.extras.noBalls}
                   </span>
                 </div>
                 <div className="flex justify-between items-center font-bold text-lg">
                   <span>Total</span>
-                  <span>{match.team2.score}-{match.team2.wickets} ({match.team2.overs}.{match.team2.balls} overs)</span>
+                  <span>{secondInnings.battingTeam.score}-{secondInnings.battingTeam.wickets} ({secondInnings.battingTeam.overs}.{secondInnings.battingTeam.balls} overs)</span>
                 </div>
               </div>
 
               {/* Fall of Wickets */}
-              {match.team2.fallOfWickets && match.team2.fallOfWickets.length > 0 && (
+              {secondInnings.battingTeam.fallOfWickets && secondInnings.battingTeam.fallOfWickets.length > 0 && (
                 <div className="p-4 border-t">
                   <h4 className="font-semibold text-gray-800 mb-2">Fall of Wickets</h4>
                   <div className="text-sm text-gray-600 space-y-1">
-                    {match.team2.fallOfWickets.map((fall, index) => (
+                    {secondInnings.battingTeam.fallOfWickets.map((fall, index) => (
                       <div key={index}>
                         {fall.wicketNumber}-{fall.score} ({fall.batsman}, {fall.over} ov)
                       </div>
@@ -395,7 +433,7 @@ export const DetailedScorecardModal: React.FC<DetailedScorecardModalProps> = ({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {match.team1.players.map(player => {
+                      {secondInnings.bowlingTeam.players.map(player => {
                         const stats = calculateBowlingStats(player, 2);
                         if (parseFloat(stats.overs) === 0) return null;
                         return (

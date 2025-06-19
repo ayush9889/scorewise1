@@ -30,10 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [otpSent, setOtpSent] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
 
-
-  if (!isOpen) return null;
-
-  // Timer ref for cleanup
+  // Timer ref for cleanup - MUST be called before any conditional returns
   const cooldownTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Cleanup timer on unmount
@@ -44,6 +41,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
     };
   }, []);
+
+  if (!isOpen) return null;
 
   // Start cooldown timer for resend OTP
   const startResendCooldown = () => {
