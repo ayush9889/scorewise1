@@ -29,10 +29,11 @@ class UserCloudSyncService {
   // Initialize sync for a specific user
   async initializeUserSync(user: User): Promise<void> {
     this.currentUser = user;
-    console.log('🔄 Initializing cloud sync for user:', user.email);
+    const userIdentifier = user.email || user.phone;
+    console.log('🔄 Initializing cloud sync for user:', userIdentifier);
     
-    if (!user.email) {
-      console.warn('⚠️ Cannot sync user without email');
+    if (!userIdentifier) {
+      console.warn('⚠️ Cannot sync user without email or phone');
       return;
     }
 
@@ -55,22 +56,24 @@ class UserCloudSyncService {
 
   // Save user profile to cloud
   private async saveUserToCloud(user: User): Promise<void> {
-    if (!user.email) return;
+    const userIdentifier = user.email || user.phone;
+    if (!userIdentifier) return;
     
-    const userRef = doc(db, USERS_COLLECTION, user.email);
+    const userRef = doc(db, USERS_COLLECTION, userIdentifier);
     await setDoc(userRef, {
       ...user,
       lastUpdated: serverTimestamp(),
       syncVersion: Date.now()
     }, { merge: true });
     
-    console.log('✅ User profile saved to cloud:', user.email);
+    console.log('✅ User profile saved to cloud:', userIdentifier);
   }
 
   // Sync all user data to cloud (groups, matches, players)
   async syncUserDataToCloud(force: boolean = false): Promise<void> {
-    if (!this.currentUser?.email) {
-      console.warn('⚠️ No user email for cloud sync');
+    const userIdentifier = this.currentUser?.email || this.currentUser?.phone;
+    if (!userIdentifier) {
+      console.warn('⚠️ No user email or phone for cloud sync');
       return;
     }
 
@@ -109,14 +112,14 @@ class UserCloudSyncService {
 
       // Use batch writes for efficiency
       const batch = writeBatch(db);
-      const userEmail = this.currentUser.email;
+      const userIdentifier = this.currentUser.email || this.currentUser.phone;
       const timestamp = serverTimestamp();
 
       // Sync groups
       for (const group of userGroups) {
-        const groupRef = doc(db, USER_GROUPS_COLLECTION, `${userEmail}_${group.id}`);
+        const groupRef = doc(db, USER_GROUPS_COLLECTION, `${userIdentifier}_${group.id}`);
         batch.set(groupRef, {
-          userEmail,
+          userIdentifier,
           groupData: group,
           lastUpdated: timestamp,
           syncVersion: Date.now()
@@ -125,9 +128,9 @@ class UserCloudSyncService {
 
       // Sync matches
       for (const match of userMatches) {
-        const matchRef = doc(db, USER_MATCHES_COLLECTION, `${userEmail}_${match.id}`);
+        const matchRef = doc(db, USER_MATCHES_COLLECTION, `${userIdentifier}_${match.id}`);
         batch.set(matchRef, {
-          userEmail,
+          userIdentifier,
           matchData: match,
           lastUpdated: timestamp,
           syncVersion: Date.now()
@@ -136,9 +139,9 @@ class UserCloudSyncService {
 
       // Sync players
       for (const player of userPlayers) {
-        const playerRef = doc(db, USER_PLAYERS_COLLECTION, `${userEmail}_${player.id}`);
+        const playerRef = doc(db, USER_PLAYERS_COLLECTION, `${userIdentifier}_${player.id}`);
         batch.set(playerRef, {
-          userEmail,
+          userIdentifier,
           playerData: player,
           lastUpdated: timestamp,
           syncVersion: Date.now()
@@ -146,9 +149,9 @@ class UserCloudSyncService {
       }
 
       // Update sync metadata
-      const metadataRef = doc(db, SYNC_METADATA_COLLECTION, userEmail);
+      const metadataRef = doc(db, SYNC_METADATA_COLLECTION, userIdentifier);
       batch.set(metadataRef, {
-        userEmail,
+        userIdentifier,
         lastSyncTime: timestamp,
         deviceInfo: {
           userAgent: navigator.userAgent,
@@ -178,19 +181,20 @@ class UserCloudSyncService {
 
   // Load user data from cloud and merge with local
   async loadUserDataFromCloud(): Promise<void> {
-    if (!this.currentUser?.email) {
-      console.warn('⚠️ No user email for cloud load');
+    const userIdentifier = this.currentUser?.email || this.currentUser?.phone;
+    if (!userIdentifier) {
+      console.warn('⚠️ No user email or phone for cloud load');
       return;
     }
 
     try {
       console.log('🔄 Loading user data from cloud...');
-      const userEmail = this.currentUser.email;
+      const userIdentifier = this.currentUser.email || this.currentUser.phone;
 
       // Load groups
       const groupsQuery = query(
         collection(db, USER_GROUPS_COLLECTION),
-        where('userEmail', '==', userEmail),
+        where('userIdentifier', '==', userIdentifier),
         orderBy('lastUpdated', 'desc')
       );
       const groupsSnapshot = await getDocs(groupsQuery);
@@ -199,7 +203,7 @@ class UserCloudSyncService {
       // Load matches
       const matchesQuery = query(
         collection(db, USER_MATCHES_COLLECTION),
-        where('userEmail', '==', userEmail),
+        where('userIdentifier', '==', userIdentifier),
         orderBy('lastUpdated', 'desc')
       );
       const matchesSnapshot = await getDocs(matchesQuery);
@@ -208,7 +212,7 @@ class UserCloudSyncService {
       // Load players
       const playersQuery = query(
         collection(db, USER_PLAYERS_COLLECTION),
-        where('userEmail', '==', userEmail),
+        where('userIdentifier', '==', userIdentifier),
         orderBy('lastUpdated', 'desc')
       );
       const playersSnapshot = await getDocs(playersQuery);
@@ -296,15 +300,15 @@ class UserCloudSyncService {
 
   // Start real-time synchronization subscriptions
   private async startRealtimeSync(): Promise<void> {
-    if (!this.currentUser?.email) return;
+    const userIdentifier = this.currentUser?.email || this.currentUser?.phone;
+    if (!userIdentifier) return;
 
-    const userEmail = this.currentUser.email;
-    console.log('🔄 Starting real-time sync subscriptions for:', userEmail);
+    console.log('🔄 Starting real-time sync subscriptions for:', userIdentifier);
 
     // Subscribe to groups changes
     const groupsQuery = query(
       collection(db, USER_GROUPS_COLLECTION),
-      where('userEmail', '==', userEmail)
+      where('userIdentifier', '==', userIdentifier)
     );
     
     const unsubscribeGroups = onSnapshot(groupsQuery, async (snapshot) => {
@@ -315,7 +319,7 @@ class UserCloudSyncService {
     // Subscribe to matches changes
     const matchesQuery = query(
       collection(db, USER_MATCHES_COLLECTION),
-      where('userEmail', '==', userEmail)
+      where('userIdentifier', '==', userIdentifier)
     );
     
     const unsubscribeMatches = onSnapshot(matchesQuery, async (snapshot) => {
@@ -326,7 +330,7 @@ class UserCloudSyncService {
     // Subscribe to players changes
     const playersQuery = query(
       collection(db, USER_PLAYERS_COLLECTION),
-      where('userEmail', '==', userEmail)
+      where('userIdentifier', '==', userIdentifier)
     );
     
     const unsubscribePlayers = onSnapshot(playersQuery, async (snapshot) => {
@@ -370,12 +374,13 @@ class UserCloudSyncService {
     cloudDataCount: { groups: number; matches: number; players: number };
     isOnline: boolean;
   }> {
-    if (!this.currentUser?.email) {
+    const userIdentifier = this.currentUser?.email || this.currentUser?.phone;
+    if (!userIdentifier) {
       return { cloudDataCount: { groups: 0, matches: 0, players: 0 }, isOnline: false };
     }
 
     try {
-      const metadataRef = doc(db, SYNC_METADATA_COLLECTION, this.currentUser.email);
+      const metadataRef = doc(db, SYNC_METADATA_COLLECTION, userIdentifier);
       const metadataDoc = await getDoc(metadataRef);
       
       const metadata = metadataDoc.exists() ? metadataDoc.data() : null;
@@ -394,7 +399,8 @@ class UserCloudSyncService {
   // Manual sync trigger
   async manualSync(): Promise<{ success: boolean; message: string }> {
     try {
-      if (!this.currentUser?.email) {
+      const userIdentifier = this.currentUser?.email || this.currentUser?.phone;
+      if (!userIdentifier) {
         return { success: false, message: 'No user logged in for sync' };
       }
 

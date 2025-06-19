@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Cloud, CloudOff, RefreshCw, Check, AlertCircle, Smartphone, Laptop } from 'lucide-react';
+import { Cloud, CloudOff, RefreshCw, Check, AlertCircle, Smartphone, Laptop, Bug } from 'lucide-react';
 import { userCloudSyncService } from '../services/userCloudSyncService';
 import { authService } from '../services/authService';
+import { DebugCloudSync } from '../services/debugCloudSync';
 
 interface CloudSyncStatusProps {
   className?: string;
@@ -17,6 +18,7 @@ export const CloudSyncStatus: React.FC<CloudSyncStatusProps> = ({ className = ''
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [lastSyncResult, setLastSyncResult] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [debugResult, setDebugResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadSyncStatus();
@@ -67,9 +69,22 @@ export const CloudSyncStatus: React.FC<CloudSyncStatusProps> = ({ className = ''
     }
   };
 
+  const handleDebugTest = async () => {
+    setDebugResult('Running debug tests...');
+    try {
+      const result = await DebugCloudSync.runAllTests();
+      setDebugResult(`Debug: ${result.summary}. Check console for details.`);
+      console.log('🧪 Debug test results:', result);
+    } catch (error) {
+      setDebugResult('Debug test failed. Check console for details.');
+      console.error('🧪 Debug test error:', error);
+    }
+    setTimeout(() => setDebugResult(null), 5000);
+  };
+
   const currentUser = authService.getCurrentUser();
   
-  // Don't show for guest users
+  // Don't show for guest users or users without email/phone
   if (!currentUser || currentUser.isGuest || (!currentUser.email && !currentUser.phone)) {
     return null;
   }
@@ -148,6 +163,15 @@ export const CloudSyncStatus: React.FC<CloudSyncStatusProps> = ({ className = ''
             </button>
             
             <button
+              onClick={handleDebugTest}
+              className="flex items-center space-x-1 px-2 py-1 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-xs"
+              title="Run debug tests to check cloud sync"
+            >
+              <Bug className="w-3 h-3" />
+              <span>Debug</span>
+            </button>
+            
+            <button
               onClick={handleManualSync}
               disabled={isManualSyncing || !syncStatus.isOnline}
               className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-sm"
@@ -164,6 +188,16 @@ export const CloudSyncStatus: React.FC<CloudSyncStatusProps> = ({ className = ''
             <div className="flex items-center space-x-2">
               <Check className="w-4 h-4 text-blue-600" />
               <span className="text-sm text-blue-800">{lastSyncResult}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Debug Result Message */}
+        {debugResult && (
+          <div className="mt-3 p-3 rounded-lg bg-purple-50 border border-purple-200">
+            <div className="flex items-center space-x-2">
+              <Bug className="w-4 h-4 text-purple-600" />
+              <span className="text-sm text-purple-800">{debugResult}</span>
             </div>
           </div>
         )}
