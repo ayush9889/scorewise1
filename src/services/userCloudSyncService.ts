@@ -59,12 +59,18 @@ class UserCloudSyncService {
     const userIdentifier = user.email || user.phone;
     if (!userIdentifier) return;
     
-    const userRef = doc(db, USERS_COLLECTION, userIdentifier);
-    await setDoc(userRef, {
+    // Clean user data to remove undefined values
+    const cleanUserData = {
       ...user,
+      name: user.name || 'Unknown',
+      email: user.email || null,
+      phone: user.phone || null,
       lastUpdated: serverTimestamp(),
       syncVersion: Date.now()
-    }, { merge: true });
+    };
+    
+    const userRef = doc(db, USERS_COLLECTION, userIdentifier);
+    await setDoc(userRef, cleanUserData, { merge: true });
     
     console.log('✅ User profile saved to cloud:', userIdentifier);
   }

@@ -61,9 +61,9 @@ export class DebugCloudSync {
       const userRef = doc(db, 'debug_users', userIdentifier);
       const testData = {
         userId: currentUser.id,
-        name: currentUser.name,
-        email: currentUser.email,
-        phone: currentUser.phone,
+        name: currentUser.name || 'Unknown',
+        email: currentUser.email || null,
+        phone: currentUser.phone || null,
         timestamp: serverTimestamp(),
         testMessage: 'User sync test'
       };
