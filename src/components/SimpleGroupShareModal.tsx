@@ -190,6 +190,22 @@ export const SimpleGroupShareModal: React.FC<SimpleGroupShareModalProps> = ({ gr
               <p>🔢 <strong>Option 2:</strong> Open the app and enter invite code: <strong>{group.inviteCode}</strong></p>
               <p>📷 <strong>Option 3:</strong> Scan the QR code with your camera</p>
             </div>
+            
+            <button
+              onClick={async () => {
+                try {
+                  console.log('🧪 Testing join process...');
+                  await SimpleGroupShare.testJoinProcess();
+                  alert('✅ Test completed! Check console for results.');
+                } catch (error) {
+                  console.error('Test failed:', error);
+                  alert('❌ Test failed - check console for details');
+                }
+              }}
+              className="mt-3 w-full bg-green-600 text-white px-3 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm"
+            >
+              🧪 Test Join System
+            </button>
           </div>
 
           {/* Group Info */}

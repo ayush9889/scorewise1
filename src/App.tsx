@@ -129,6 +129,12 @@ function App() {
         await SimpleGroupShare.debugGroups();
       };
       
+      (window as any).testJoinProcess = async () => {
+        await SimpleGroupShare.testJoinProcess();
+      };
+      
+      (window as any).SimpleGroupShare = SimpleGroupShare;
+      
       (window as any).emergencyGroupRecovery = async () => {
         console.log('🚨 === EMERGENCY GROUP RECOVERY ===');
         

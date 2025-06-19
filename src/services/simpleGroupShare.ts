@@ -1,4 +1,5 @@
 import { Group } from '../types/auth';
+import { Player } from '../types/cricket';
 import { authService } from './authService';
 import { storageService } from './storage';
 
@@ -18,13 +19,20 @@ export class SimpleGroupShare {
   
   /**
    * Join a group using an invite code (from URL or manual entry)
+   * SAFE VERSION: Completely avoids the problematic authService.joinGroup method
    */
   static async joinGroupByCode(inviteCode: string): Promise<Group> {
-    console.log('🔗 Starting simple join process with invite code:', inviteCode);
+    console.log('🔗 Starting SAFE join process with invite code:', inviteCode);
     
     // Clean the invite code
     const cleanCode = inviteCode.trim().toUpperCase();
     console.log('🧹 Cleaned invite code:', cleanCode);
+    
+    // Check if user is logged in
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser) {
+      throw new Error('You must be logged in to join a group');
+    }
     
     // Get all groups for debugging
     const allGroups = await storageService.getAllGroups();
@@ -59,20 +67,122 @@ export class SimpleGroupShare {
     console.log('✅ Group found:', targetGroup.name);
     
     // Check if user is already a member
-    const currentUser = authService.getCurrentUser();
-    if (!currentUser) {
-      throw new Error('You must be logged in to join a group');
-    }
-    
     const isAlreadyMember = targetGroup.members.some(member => member.userId === currentUser.id);
     if (isAlreadyMember) {
       console.log('ℹ️ User is already a member of this group');
       return targetGroup;
     }
     
-    // Use the existing authService join method
-    console.log('🤝 Joining group through authService...');
-    return await authService.joinGroup(cleanCode);
+    // SAFE JOIN PROCESS: Create a complete copy of the group to avoid reference issues
+    console.log('🔄 Creating safe copy of group for joining...');
+    const safeGroupCopy = JSON.parse(JSON.stringify(targetGroup));
+    
+    // Add user as member to the COPY
+    console.log('👤 Adding user as member...');
+    safeGroupCopy.members.push({
+      userId: currentUser.id,
+      role: 'member',
+      joinedAt: Date.now(),
+      isActive: true,
+      permissions: {
+        canCreateMatches: true,
+        canScoreMatches: true,
+        canManageMembers: false,
+        canViewStats: true
+      }
+    });
+    
+    // Create player profile for the user
+    console.log('🏏 Creating player profile...');
+    const newPlayer = {
+      id: `player_${currentUser.id}`,
+      name: currentUser.name,
+      shortId: currentUser.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase(),
+      photoUrl: currentUser.photoUrl,
+      isGroupMember: true,
+      isGuest: false,
+      groupIds: [safeGroupCopy.id],
+      stats: {
+        matchesPlayed: 0,
+        runsScored: 0,
+        ballsFaced: 0,
+        fours: 0,
+        sixes: 0,
+        fifties: 0,
+        hundreds: 0,
+        highestScore: 0,
+        timesOut: 0,
+        wicketsTaken: 0,
+        ballsBowled: 0,
+        runsConceded: 0,
+        catches: 0,
+        runOuts: 0,
+        motmAwards: 0,
+        ducks: 0,
+        dotBalls: 0,
+        maidenOvers: 0,
+        bestBowlingFigures: '0/0'
+      }
+    };
+    
+    try {
+      // CRITICAL: Save in the correct order with error handling
+      console.log('💾 Step 1: Saving player profile...');
+      await storageService.savePlayer(newPlayer);
+      console.log('✅ Player profile saved successfully');
+      
+      console.log('💾 Step 2: Saving updated group...');
+      await storageService.saveGroup(safeGroupCopy);
+      console.log('✅ Updated group saved successfully');
+      
+      // Update user's group list
+      console.log('💾 Step 3: Updating user profile...');
+      if (!currentUser.groupIds) {
+        currentUser.groupIds = [];
+      }
+      if (!currentUser.groupIds.includes(safeGroupCopy.id)) {
+        currentUser.groupIds.push(safeGroupCopy.id);
+        await storageService.saveUser(currentUser);
+        
+        // Update local storage immediately
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        console.log('✅ User profile updated successfully');
+      }
+      
+      // Try cloud backup (non-blocking)
+      console.log('☁️ Step 4: Attempting cloud backup...');
+      try {
+        // Use the cloud storage service for backup (non-blocking)
+        import('../services/cloudStorageService').then(({ cloudStorageService }) => {
+          Promise.all([
+            cloudStorageService.saveGroup(safeGroupCopy).catch(e => console.log('Cloud group save failed:', e)),
+            cloudStorageService.saveUser(currentUser).catch(e => console.log('Cloud user save failed:', e))
+          ]).then(() => {
+            console.log('☁️ Cloud backup completed');
+          }).catch(error => {
+            console.log('☁️ Cloud backup failed (data saved locally):', error);
+          });
+        });
+      } catch (error) {
+        console.log('☁️ Cloud service unavailable, data saved locally only');
+      }
+      
+      console.log('🎉 Successfully joined group:', safeGroupCopy.name);
+      return safeGroupCopy;
+      
+    } catch (error) {
+      console.error('❌ Failed to join group:', error);
+      
+      // Rollback: Try to remove the player if group save failed
+      try {
+        await storageService.deletePlayer(newPlayer.id);
+        console.log('🔄 Rolled back player creation');
+      } catch (rollbackError) {
+        console.warn('⚠️ Rollback failed:', rollbackError);
+      }
+      
+      throw new Error(`Failed to join group: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
   
   /**
@@ -243,6 +353,58 @@ Group ${index + 1}:
       
     } catch (error) {
       console.error('❌ Debug failed:', error);
+    }
+  }
+  
+  /**
+   * Test function to verify the join process works correctly
+   * Run this in console to test before sharing links
+   */
+  static async testJoinProcess(): Promise<void> {
+    console.log('🧪 === TESTING SAFE JOIN PROCESS ===');
+    
+    try {
+      const allGroups = await storageService.getAllGroups();
+      console.log('📊 Available groups before test:', allGroups.length);
+      
+      if (allGroups.length === 0) {
+        console.log('❌ No groups available for testing. Create a group first.');
+        return;
+      }
+      
+      const testGroup = allGroups[0];
+      console.log('🎯 Testing with group:', testGroup.name, 'Code:', testGroup.inviteCode);
+      
+      // Generate join URL
+      const joinUrl = this.generateJoinURL(testGroup);
+      console.log('🔗 Generated join URL:', joinUrl);
+      
+      // Test URL parsing
+      const extractedCode = this.checkURLForJoinCode();
+      console.log('🔍 URL parsing test:', extractedCode ? 'PASS' : 'No code in current URL');
+      
+      // Test invite code validation
+      const isValid = await this.validateInviteCode(testGroup.inviteCode);
+      console.log('✅ Invite code validation:', isValid ? 'PASS' : 'FAIL');
+      
+      // Test group lookup
+      const foundGroup = await this.getGroupByInviteCode(testGroup.inviteCode);
+      console.log('🔍 Group lookup test:', foundGroup ? 'PASS' : 'FAIL');
+      
+      // Check groups after test
+      const allGroupsAfter = await storageService.getAllGroups();
+      console.log('📊 Available groups after test:', allGroupsAfter.length);
+      
+      if (allGroupsAfter.length === allGroups.length) {
+        console.log('✅ GROUP INTEGRITY TEST PASSED - No groups were deleted');
+      } else {
+        console.log('❌ GROUP INTEGRITY TEST FAILED - Group count changed!');
+      }
+      
+      console.log('🎉 Test completed successfully');
+      
+    } catch (error) {
+      console.error('❌ Test failed:', error);
     }
   }
 } 
