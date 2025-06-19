@@ -33,6 +33,7 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   const [showQuickAdd, setShowQuickAdd] = useState(false);
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerShortId, setNewPlayerShortId] = useState('');
+  const [newPlayerEmail, setNewPlayerEmail] = useState('');
   const [newPlayerPhone, setNewPlayerPhone] = useState('');
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -198,6 +199,7 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
       // Reset form immediately
       setNewPlayerName('');
       setNewPlayerShortId('');
+      setNewPlayerEmail('');
       setNewPlayerPhone('');
       setSelectedPhoto(null);
       setShowAddPlayer(false);
@@ -210,13 +212,14 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
       });
       
       // Handle group invitation in the background (non-blocking)
-      if (groupId && newPlayerPhone.trim()) {
-        authService.inviteToGroup(groupId, undefined, newPlayerPhone.trim()).catch((inviteError) => {
-          console.warn('Failed to send invitation:', inviteError);
+      if (groupId && newPlayerEmail.trim()) {
+        authService.inviteToGroupByEmail(groupId, newPlayerEmail.trim(), newPlayerName.trim()).catch((inviteError) => {
+          console.warn('Failed to send email invitation:', inviteError);
         });
       }
       
     } catch (err) {
+      console.error('Error creating player:', err);
       setError('Failed to add player. Please try again.');
       setLoading(false);
     }
@@ -713,6 +716,14 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                       value={newPlayerShortId}
                       onChange={(e) => setNewPlayerShortId(e.target.value)}
                       placeholder="Short ID (optional)"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    />
+                    
+                    <input
+                      type="email"
+                      value={newPlayerEmail}
+                      onChange={(e) => setNewPlayerEmail(e.target.value)}
+                      placeholder="Email address (optional)"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     />
                     

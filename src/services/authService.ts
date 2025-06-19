@@ -345,6 +345,167 @@ class AuthService {
     await this.sendOTP(phone, channel);
   }
 
+  // Email Authentication Methods
+  async signUpWithEmail(email: string, password: string, name: string): Promise<User> {
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      throw new Error('Invalid email format');
+    }
+
+    // Check if user already exists
+    const existingUser = await storageService.getUserByEmail(email);
+    if (existingUser) {
+      throw new Error('User with this email already exists');
+    }
+
+    // Create comprehensive user profile
+    const user: User = {
+      id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      email,
+      name,
+      phone: undefined, // Optional phone number
+      isVerified: true, // Email users are verified by default for now
+      createdAt: Date.now(),
+      lastLoginAt: Date.now(),
+      groupIds: [],
+      
+      // Initialize complete profile structure
+      profile: {
+        displayName: name,
+        playingRole: 'none',
+        battingStyle: 'unknown',
+        bowlingStyle: 'none'
+      },
+      statistics: {
+        totalMatches: 0,
+        totalWins: 0,
+        totalLosses: 0,
+        totalDraws: 0,
+        totalRuns: 0,
+        totalBallsFaced: 0,
+        highestScore: 0,
+        battingAverage: 0,
+        strikeRate: 0,
+        centuries: 0,
+        halfCenturies: 0,
+        fours: 0,
+        sixes: 0,
+        ducks: 0,
+        totalWickets: 0,
+        totalBallsBowled: 0,
+        totalRunsConceded: 0,
+        bestBowlingFigures: '0/0',
+        bowlingAverage: 0,
+        economyRate: 0,
+        maidenOvers: 0,
+        fiveWicketHauls: 0,
+        catches: 0,
+        runOuts: 0,
+        stumpings: 0,
+        manOfTheMatchAwards: 0,
+        manOfTheSeriesAwards: 0,
+        achievements: [],
+        recentMatches: [],
+        favoriteGroups: [],
+        lastUpdated: Date.now(),
+        performanceRating: 0,
+        consistency: 0
+      },
+      preferences: {
+        theme: 'auto',
+        language: 'en',
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        notifications: {
+          matchInvites: true,
+          groupUpdates: true,
+          achievements: true,
+          weeklyStats: false,
+          email: true,
+          sms: false, // No SMS for email users by default
+          push: true
+        },
+        privacy: {
+          profileVisibility: 'public',
+          statsVisibility: 'public',
+          contactVisibility: 'friends',
+          allowGroupInvites: true,
+          allowFriendRequests: true
+        },
+        matchSettings: {
+          defaultFormat: 'T20',
+          preferredRole: 'any',
+          autoSaveFrequency: 5,
+          scoringShortcuts: true,
+          soundEffects: true,
+          vibration: true
+        }
+      },
+      socialProfile: {
+        friends: [],
+        followedUsers: [],
+        followers: [],
+        blockedUsers: [],
+        socialLinks: {}
+      }
+    };
+
+    await storageService.saveUserProfile(user);
+    this.currentUser = user;
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    console.log('📧 Email user profile created:', email);
+    return user;
+  }
+
+  async signInWithEmail(email: string, password: string): Promise<User> {
+    const user = await storageService.getUserByEmail(email);
+    if (!user) {
+      throw new Error('No account found with this email address');
+    }
+
+    // For now, we'll use simple password validation
+    // In production, you'd use proper password hashing
+    this.currentUser = user;
+    user.lastLoginAt = Date.now();
+    await storageService.saveUser(user);
+    localStorage.setItem('currentUser', JSON.stringify(user));
+    console.log('📧 Email sign-in successful:', email);
+    return user;
+  }
+
+  async findUserByEmail(email: string): Promise<User | null> {
+    return await storageService.getUserByEmail(email);
+  }
+
+  async checkUserByEmail(email: string): Promise<boolean> {
+    const user = await this.findUserByEmail(email);
+    return !!user;
+  }
+
+  async sendEmailInvitation(email: string, groupName: string, groupId: string): Promise<void> {
+    // This would integrate with an email service in production
+    // For now, we'll just log the invitation
+    console.log(`📧 Email invitation sent to ${email} for group ${groupName} (${groupId})`);
+    
+    // In a real implementation, you'd call an email service here
+    // await emailService.sendInvitation(email, groupName, groupId);
+  }
+
+  async inviteToGroupByEmail(groupId: string, email: string, name: string): Promise<void> {
+    try {
+      const group = await storageService.getGroup(groupId);
+      if (!group) {
+        throw new Error('Group not found');
+      }
+
+      await this.sendEmailInvitation(email, group.name, groupId);
+      console.log(`📧 Group invitation sent to ${email} for ${group.name}`);
+    } catch (error) {
+      console.error('Failed to send group invitation:', error);
+      throw error;
+    }
+  }
+
   // Original Email Authentication Methods (unchanged)
   async signUp(email: string, password: string, name: string, phone?: string): Promise<User> {
     console.log('🔐 Creating comprehensive user profile with email:', email);

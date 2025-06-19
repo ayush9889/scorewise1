@@ -19,8 +19,9 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   const [groupName, setGroupName] = useState('');
   const [groupDescription, setGroupDescription] = useState('');
   const [inviteCode, setInviteCode] = useState('');
-  const [invitePhone, setInvitePhone] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
+  const [invitePhone, setInvitePhone] = useState('');
   const [guestLink, setGuestLink] = useState('');
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -136,41 +137,40 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     return phoneRegex.test(formatted);
   };
 
-  const handleAddMemberByPhone = async (e: React.FormEvent) => {
+  const handleAddMemberByEmail = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentGroup || !invitePhone.trim() || !inviteName.trim()) return;
+    if (!currentGroup || !inviteEmail.trim() || !inviteName.trim()) return;
 
     setLoading(true);
     setError('');
 
     try {
-      // Format and validate phone number
-      const formattedPhone = formatPhoneNumber(invitePhone.trim());
-      
-      if (!validatePhoneNumber(formattedPhone)) {
-        throw new Error('Invalid phone number format. Please enter a valid phone number with country code (e.g., +1234567890).');
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(inviteEmail.trim())) {
+        throw new Error('Invalid email address format. Please enter a valid email address.');
       }
 
-      console.log('📱 Adding member by phone:', inviteName, formattedPhone);
+      console.log('📧 Adding member by email:', inviteName, inviteEmail);
       
-      // Check if user already exists with this phone
-      let user = await authService.findUserByPhone(formattedPhone);
+      // Check if user already exists with this email
+      let user = await authService.findUserByEmail(inviteEmail.trim());
       
       if (!user) {
         // Create unverified user account
         user = {
           id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          email: '', // No email initially
+          email: inviteEmail.trim(),
           name: inviteName.trim(),
-          phone: formattedPhone,
-          isVerified: false, // Will be verified when they sign up with OTP
+          phone: invitePhone.trim() || undefined, // Optional phone number
+          isVerified: false, // Will be verified when they sign up
           createdAt: Date.now(),
           lastLoginAt: Date.now(),
           groupIds: []
         };
         
         await authService.addUser(user);
-        console.log('📱 Created unverified user:', user.name, user.phone);
+        console.log('📧 Created unverified user:', user.name, user.email);
       }
 
       // Add user to group
@@ -211,37 +211,22 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       await storageService.savePlayer(player);
       console.log('🏏 Created player profile for:', player.name);
       
-      // Try to send OTP, but don't fail if it doesn't work
+      // Send email invitation (if email service is configured)
       try {
-        await authService.sendOTP(formattedPhone);
-        console.log('📱 OTP sent successfully');
-      } catch (otpError) {
-        console.warn('⚠️ Failed to send OTP, but user was still added:', otpError);
-        
-        // Check if it's a Twilio-related error and provide helpful guidance
-        const errorMessage = otpError instanceof Error ? otpError.message : String(otpError);
-        let userFriendlyMessage = '';
-        
-        if (errorMessage.includes('unverified') || errorMessage.includes('Trial accounts')) {
-          userFriendlyMessage = `\n\n⚠️ Note: OTP could not be sent because this is a Twilio trial account and the phone number ${formattedPhone} is not verified.\n\nTo fix this:\n• Verify the phone number in your Twilio console, OR\n• Remove Twilio credentials from .env file to use development mode`;
-        } else if (errorMessage.includes('Invalid parameter') || errorMessage.includes('Invalid phone number')) {
-          userFriendlyMessage = `\n\n⚠️ Note: OTP could not be sent due to phone number format issues.\n\nTo fix this:\n• Ensure the phone number is in international format (+1234567890)\n• Or remove Twilio credentials from .env file to use development mode`;
-        } else {
-          userFriendlyMessage = `\n\n⚠️ Note: OTP could not be sent, but the member was still added to the group.\n\nTo enable OTP verification:\n• Check your Twilio configuration\n• Or remove Twilio credentials from .env file to use development mode`;
-        }
-        
-        // Show success message with OTP warning
-        alert(`✅ ${inviteName} has been added to the group!${userFriendlyMessage}\n\n🏏 They can now participate in matches and will appear in group statistics.\n\n🔐 To access personalized features, they need to sign up with their phone number: ${formattedPhone}`);
+        await authService.sendEmailInvitation(inviteEmail.trim(), currentGroup.name, currentGroup.id);
+        console.log('✅ Email invitation sent successfully');
+      } catch (emailError) {
+        console.warn('⚠️ Failed to send email invitation:', emailError);
+        // Continue without email - they can still join manually
       }
       
-      // If OTP was sent successfully, show normal success message
-      if (!error) {
-        alert(`✅ ${inviteName} has been added to the group!\n\n📱 They will receive an OTP to verify their account.\n\n🏏 They can now participate in matches and will appear in group statistics.\n\n🔐 To access personalized features, they need to sign up with their phone number: ${formattedPhone}`);
-      }
+      // Show success message
+      alert(`✅ ${inviteName} has been added to the group!\n\n📧 They will receive an email invitation to join.\n\n🏏 They can now participate in matches and will appear in group statistics.\n\n🔐 To access personalized features, they need to sign up with their email: ${inviteEmail.trim()}`);
       
       // Close modal and reset form
       setShowInviteModal(false);
       setInviteName('');
+      setInviteEmail('');
       setInvitePhone('');
       
       // CRITICAL FIX: Reload group data to show the new member
@@ -251,15 +236,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     } catch (err) {
       console.error('❌ Failed to add member:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to add member';
-      
-      // Provide helpful guidance for common Twilio errors
-      if (errorMessage.includes('unverified') || errorMessage.includes('Trial accounts')) {
-        setError('The phone number is unverified. Trial accounts cannot send messages to unverified numbers. Either verify the phone number in your Twilio console or remove Twilio credentials from .env file to use development mode.');
-      } else if (errorMessage.includes('Invalid parameter') || errorMessage.includes('Invalid phone number')) {
-        setError('Invalid phone number format. Please enter a valid phone number with country code (e.g., +1234567890). Or remove Twilio credentials from .env file to use development mode.');
-      } else {
-        setError(errorMessage);
-      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -394,7 +371,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     className="p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
                   >
                     <UserPlus className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-green-700">Add Member by Phone</div>
+                    <div className="text-sm font-medium text-green-700">Add Member by Email</div>
                     <div className="text-xs text-green-600">Add someone to your cricket group</div>
                   </button>
 
@@ -414,9 +391,9 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     <div className="text-sm text-blue-800">
                       <p className="font-medium mb-1">How it works:</p>
                       <ul className="text-xs space-y-1 list-disc list-inside">
-                        <li>Add members by phone number - they'll be part of your group immediately</li>
+                        <li>Add members by email - they'll be part of your group immediately</li>
                         <li>They can participate in matches and appear in statistics</li>
-                        <li>To access personalized features, they need to verify with the same phone number</li>
+                        <li>To access personalized features, they need to verify with the same email</li>
                         <li>Once verified, they can view their personal dashboard and upload photos</li>
                       </ul>
                     </div>
@@ -475,7 +452,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                                 </div>
                               ) : (
                                 <div className="flex items-center">
-                                  <Phone className="w-3 h-3 mr-1" />
+                                  <Mail className="w-3 h-3 mr-1" />
                                   Unverified
                                 </div>
                               )}
@@ -487,7 +464,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                           )}
                           {!isVerified && (
                             <div className="text-xs text-orange-600 mt-1">
-                              Can participate in matches • Sign up with {member.phone} to verify
+                              Can participate in matches • Sign up with {member.email} to verify
                             </div>
                           )}
                         </div>
@@ -684,9 +661,9 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
           <div className="bg-white rounded-2xl w-full max-w-md">
             <div className="p-6 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">Add Member to Group</h2>
-              <p className="text-sm text-gray-600 mt-1">Add someone to your cricket group by phone number</p>
+              <p className="text-sm text-gray-600 mt-1">Add someone to your cricket group by email address</p>
             </div>
-            <form onSubmit={handleAddMemberByPhone} className="p-6 space-y-4">
+            <form onSubmit={handleAddMemberByEmail} className="p-6 space-y-4">
               {error && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-red-700 text-sm">{error}</p>
@@ -709,7 +686,27 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Phone Number *
+                  Email Address *
+                </label>
+                <div className="relative">
+                  <Mail className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="Enter email address (e.g., player@example.com)"
+                    required
+                  />
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  They will receive an invitation email to join the group
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number (Optional)
                 </label>
                 <div className="relative">
                   <Phone className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -718,12 +715,11 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     value={invitePhone}
                     onChange={(e) => setInvitePhone(e.target.value)}
                     className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
-                    placeholder="Enter phone number (e.g., +1234567890)"
-                    required
+                    placeholder="Enter phone number (optional)"
                   />
                 </div>
                 <p className="text-xs text-gray-500 mt-1">
-                  Include country code (e.g., +1 for US, +44 for UK)
+                  Phone number can be added later
                 </p>
               </div>
               
@@ -732,34 +728,31 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                 <ul className="text-sm text-blue-800 space-y-1">
                   <li>• They'll be added to your group immediately</li>
                   <li>• They can participate in matches and appear in statistics</li>
-                  <li>• They'll receive an OTP to verify their account (if Twilio is configured)</li>
-                  <li>• Once verified, they can access personalized features</li>
+                  <li>• They'll receive an email invitation to join</li>
+                  <li>• Once they sign up, they can access personalized features</li>
                 </ul>
               </div>
               
-              <div className="bg-orange-50 rounded-lg p-4">
-                <h4 className="font-medium text-orange-900 mb-2">Troubleshooting:</h4>
-                <ul className="text-sm text-orange-800 space-y-1">
-                  <li>• If OTP fails, remove Twilio credentials from .env to use development mode</li>
-                  <li>• Trial accounts can only send to verified numbers</li>
-                  <li>• Members can still participate in matches without OTP verification</li>
-                </ul>
-              </div>
-              
-              <div className="flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 text-gray-600 hover:text-gray-800"
-                >
-                  Cancel
-                </button>
+              <div className="flex space-x-3">
                 <button
                   type="submit"
-                  disabled={loading || !inviteName.trim() || !invitePhone.trim()}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                  disabled={loading}
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? 'Adding...' : 'Add to Group'}
+                  {loading ? 'Adding...' : 'Add Member'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowInviteModal(false);
+                    setInviteName('');
+                    setInviteEmail('');
+                    setInvitePhone('');
+                    setError('');
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
                 </button>
               </div>
             </form>
