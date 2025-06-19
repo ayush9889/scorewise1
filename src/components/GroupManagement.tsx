@@ -13,9 +13,8 @@ interface GroupManagementProps {
 
 export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   const [currentGroup, setCurrentGroup] = useState<Group | null>(null);
-  const [members, setMembers] = useState<User[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [activeTab, setActiveTab] = useState<'members' | 'players'>('members');
+  const [activeTab, setActiveTab] = useState<'players'>('players');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showJoinGroup, setShowJoinGroup] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
@@ -34,8 +33,10 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   const [showBulkImport, setShowBulkImport] = useState(false);
   const [bulkImportText, setBulkImportText] = useState('');
   const [importFormat, setImportFormat] = useState<'whatsapp' | 'csv' | 'manual'>('whatsapp');
-  const [previewMembers, setPreviewMembers] = useState<{ name: string; email: string; phone?: string }[]>([]);
+  const [previewPlayers, setPreviewPlayers] = useState<{ name: string; email: string; phone?: string }[]>([]);
   const [importStep, setImportStep] = useState<'input' | 'preview' | 'importing'>('input');
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   useEffect(() => {
     loadGroupData();
@@ -48,10 +49,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       setCurrentGroup(group);
       
       if (group) {
-        const groupMembers = await authService.getGroupMembers(group.id);
-        setMembers(groupMembers);
         setGuestLink(authService.generateGuestLink(group.id));
-        console.log('👥 Loaded group members:', groupMembers.length);
+        console.log('👥 Loading group players for:', group.name);
         
         // Load group players from cloud first, then fallback to local
         try {
@@ -159,7 +158,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     return phoneRegex.test(formatted);
   };
 
-  const handleAddMemberByEmail = async (e: React.FormEvent) => {
+  const handleAddPlayerByEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentGroup || !inviteEmail.trim() || !inviteName.trim()) return;
 
@@ -195,7 +194,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         console.log('📧 Created unverified user:', user.name, user.email);
       }
 
-      // Add user to group
+      // Add user to group as member first (for backward compatibility)
       await authService.addUserToGroup(currentGroup.id, user.id, 'member');
       
       // Create a player profile for this user
@@ -256,8 +255,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       
       console.log('✅ Player added successfully, group data reloaded');
     } catch (err) {
-      console.error('❌ Failed to add member:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to add member';
+      console.error('❌ Failed to add player:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add player';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -306,8 +305,13 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
   console.log('🔍 GroupManagement render state:', {
     hasCurrentGroup: !!currentGroup,
     groupName: currentGroup?.name,
-    membersCount: members.length,
-    currentUser: currentUser?.name
+    groupId: currentGroup?.id,
+    playersCount: players.length,
+    currentUser: currentUser?.name,
+    currentUserId: currentUser?.id,
+    canManageGroup: canManageGroup,
+    groupCreatedBy: currentGroup?.createdBy,
+    groupAdmins: currentGroup?.admins
   });
 
   // WhatsApp/Bulk Import Functions
@@ -444,7 +448,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       !currentGroup.members.some(existing => existing.email === member.email)
     );
     
-    setPreviewMembers(uniqueMembers);
+    setPreviewPlayers(uniqueMembers);
     setImportStep('preview');
   };
 
@@ -506,46 +510,118 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     };
   };
 
+  const handleDeleteGroup = async () => {
+    if (!currentGroup) return;
+    
+    if (deleteConfirmText !== currentGroup.name) {
+      setError('Please type the group name exactly to confirm deletion');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+
+    try {
+      console.log('🗑️ Deleting group:', currentGroup.name);
+      
+      // Call the delete group service
+      await authService.deleteGroup(currentGroup.id);
+      
+      console.log('✅ Group deleted successfully');
+      
+      // Close modal and navigate back
+      setShowDeleteGroupModal(false);
+      setDeleteConfirmText('');
+      onBack(); // Navigate back to main dashboard
+      
+    } catch (err) {
+      console.error('❌ Failed to delete group:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete group');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleBulkImportConfirm = async () => {
+    if (!currentGroup || previewPlayers.length === 0) return;
+
     setImportStep('importing');
     setLoading(true);
     
     try {
-      const newMembers: any[] = [];
+      console.log('🚀 Starting bulk import of', previewPlayers.length, 'players');
       
-      for (const memberData of previewMembers) {
-        const member = {
-          id: `member_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          ...memberData,
-          role: 'member' as const,
-          joinedAt: new Date().toISOString(),
-          isActive: true
+      const newPlayers: any[] = [];
+      
+      for (const playerData of previewPlayers) {
+        // Create user account first
+        const user = {
+          id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          email: playerData.email,
+          name: playerData.name,
+          phone: playerData.phone,
+          isVerified: false,
+          createdAt: Date.now(),
+          lastLoginAt: Date.now(),
+          groupIds: [currentGroup.id]
         };
         
-        newMembers.push(member);
+        await authService.addUser(user);
+        await authService.addUserToGroup(currentGroup.id, user.id, 'member');
+        
+        // Create player profile for each imported user
+        const player: Player = {
+          id: `player_${user.id}`,
+          name: user.name,
+          shortId: user.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase(),
+          photoUrl: undefined,
+          isGroupMember: true,
+          isGuest: false,
+          groupIds: [currentGroup.id],
+          stats: {
+            matchesPlayed: 0,
+            runsScored: 0,
+            ballsFaced: 0,
+            fours: 0,
+            sixes: 0,
+            fifties: 0,
+            hundreds: 0,
+            highestScore: 0,
+            timesOut: 0,
+            wicketsTaken: 0,
+            ballsBowled: 0,
+            runsConceded: 0,
+            catches: 0,
+            runOuts: 0,
+            motmAwards: 0,
+            ducks: 0,
+            dotBalls: 0,
+            maidenOvers: 0,
+            bestBowlingFigures: '0/0'
+          }
+        };
+        
+        await storageService.savePlayer(player);
+        newPlayers.push(player);
+        
+        console.log('✅ Created player profile for:', player.name);
       }
-      
-      // Add all new members to the group
-      const updatedGroup = {
-        ...currentGroup,
-        members: [...currentGroup.members, ...newMembers],
-        memberCount: currentGroup.memberCount + newMembers.length
-      };
-      
-      await storageService.updateGroup(updatedGroup);
-      onGroupUpdate(updatedGroup);
       
       // Reset import state
       setShowBulkImport(false);
       setBulkImportText('');
-      setPreviewMembers([]);
+      setPreviewPlayers([]);
       setImportStep('input');
       
-      alert(`✅ Successfully imported ${newMembers.length} members!`);
+      // Reload group data to show new players
+      await loadGroupData();
       
+      alert(`🎉 Successfully imported ${newPlayers.length} players!\n\n🏏 All players can now participate in matches and their stats will be tracked.`);
+      
+      console.log('✅ Bulk import completed successfully');
     } catch (error) {
-      console.error('Failed to import members:', error);
-      alert('Failed to import members. Please try again.');
+      console.error('❌ Bulk import failed:', error);
+      setError(error instanceof Error ? error.message : 'Failed to import players');
     } finally {
       setLoading(false);
     }
@@ -614,7 +690,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-green-50 rounded-lg p-3 text-center">
-                  <div className="text-2xl font-bold text-green-700">{members.length}</div>
+                  <div className="text-2xl font-bold text-green-700">{currentGroup.members.length}</div>
                   <div className="text-sm text-green-600">Members</div>
                 </div>
                 <div className="bg-blue-50 rounded-lg p-3 text-center">
@@ -630,19 +706,6 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               <div className="border-b border-gray-200">
                 <nav className="flex">
                   <button
-                    onClick={() => setActiveTab('members')}
-                    className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
-                      activeTab === 'members'
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700'
-                    }`}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <Users className="w-4 h-4" />
-                      <span>Members ({members.length})</span>
-                    </div>
-                  </button>
-                  <button
                     onClick={() => setActiveTab('players')}
                     className={`px-6 py-4 text-sm font-medium border-b-2 transition-colors ${
                       activeTab === 'players'
@@ -651,7 +714,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     }`}
                   >
                     <div className="flex items-center space-x-2">
-                      <Star className="w-4 h-4" />
+                      <Users className="w-4 h-4" />
                       <span>Players ({players.length})</span>
                     </div>
                   </button>
@@ -659,19 +722,19 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               </div>
 
               <div className="p-6">
-                {activeTab === 'members' && (
+                {activeTab === 'players' && (
                   <div className="space-y-6">
                     {canManageGroup && (
                       <div>
-                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Member Management</h3>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-4">Player Management</h3>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <button
                             onClick={() => setShowInviteModal(true)}
                             className="p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
                           >
                             <UserPlus className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                            <div className="text-sm font-medium text-green-700">Add Member</div>
-                            <div className="text-xs text-green-600">Add one member manually</div>
+                            <div className="text-sm font-medium text-green-700">Add Player</div>
+                            <div className="text-xs text-green-600">Add one player manually</div>
                           </button>
 
                           <button
@@ -680,7 +743,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                           >
                             <MessageCircle className="w-6 h-6 text-blue-600 mx-auto mb-2" />
                             <div className="text-sm font-medium text-blue-700">🚀 Import from WhatsApp</div>
-                            <div className="text-xs text-blue-600">Bulk import multiple members</div>
+                            <div className="text-xs text-blue-600">Bulk import multiple players</div>
                           </button>
 
                           <button
@@ -697,13 +760,13 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                           <div className="flex items-start space-x-3">
                             <AlertCircle className="w-5 h-5 text-blue-600 mt-0.5" />
                             <div className="text-sm text-blue-800">
-                              <p className="font-medium mb-1">How member management works:</p>
+                              <p className="font-medium mb-1">How player management works:</p>
                               <ul className="text-xs space-y-1 list-disc list-inside">
-                                <li><strong>Add Member:</strong> Add individual members by email</li>
+                                <li><strong>Add Player:</strong> Add individual players by email - they become players immediately</li>
                                 <li><strong>🚀 WhatsApp Import:</strong> Bulk import your entire WhatsApp group in seconds!</li>
-                                <li><strong>Share Code:</strong> Let others join using the group invite code</li>
-                                <li>Members can participate in matches immediately and their stats will be tracked</li>
-                                <li>They need to verify with the same email for full member profile access</li>
+                                <li><strong>Share Code:</strong> Let others join using the group invite code - they become players instantly</li>
+                                <li><strong>Match Ready:</strong> All players can participate in matches immediately and their stats will be tracked</li>
+                                <li><strong>Full Access:</strong> Players need to verify with the same email for complete profile access</li>
                               </ul>
                             </div>
                           </div>
@@ -712,76 +775,62 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     )}
 
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Group Members</h3>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Group Players</h3>
                       <div className="space-y-3">
-                        {members.map((member) => {
-                          const memberInfo = currentGroup.members.find(m => m.userId === member.id);
-                          const isCurrentUser = member.id === currentUser?.id;
-                          const isVerified = member.isVerified;
-                          const isAdmin = memberInfo?.role === 'admin';
-                          const canRemove = canManageGroup && !isCurrentUser && !isVerified;
+                        {players.map((player) => {
+                          const canRemove = canManageGroup && !player.isGroupMember;
+                          const hasStats = player.stats && player.stats.matchesPlayed > 0;
                           
                           return (
-                            <div key={member.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
+                            <div key={player.id} className="flex items-center justify-between p-4 border border-gray-200 rounded-lg">
                               <div className="flex items-center">
                                 <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mr-4">
-                                  {member.photoUrl ? (
-                                    <img src={member.photoUrl} alt={member.name} className="w-full h-full object-cover rounded-full" />
+                                  {player.photoUrl ? (
+                                    <img src={player.photoUrl} alt={player.name} className="w-full h-full object-cover rounded-full" />
                                   ) : (
                                     <span className="font-semibold text-green-600 text-lg">
-                                      {member.name.charAt(0).toUpperCase()}
+                                      {player.name.charAt(0).toUpperCase()}
                                     </span>
                                   )}
                                 </div>
                                 <div>
                                   <div className="flex items-center space-x-2">
-                                    <div className="font-medium text-gray-900">{member.name}</div>
-                                    {isCurrentUser && (
-                                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
-                                        You
+                                    <div className="font-medium text-gray-900">{player.name}</div>
+                                    {player.isGroupMember && (
+                                      <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full flex items-center">
+                                        <Crown className="w-3 h-3 mr-1" />
+                                        Member
                                       </span>
-                                    )}
-                                    {isAdmin && (
-                                      <Crown className="w-4 h-4 text-yellow-500" />
                                     )}
                                   </div>
                                   <div className="flex items-center space-x-2 mt-1">
-                                    <span className={`px-2 py-1 text-xs rounded-full ${
-                                      isVerified 
-                                        ? 'bg-green-100 text-green-700' 
-                                        : 'bg-orange-100 text-orange-700'
-                                    }`}>
-                                      {isVerified ? (
-                                        <div className="flex items-center">
-                                          <UserCheck className="w-3 h-3 mr-1" />
-                                          Verified
-                                        </div>
-                                      ) : (
-                                        <div className="flex items-center">
-                                          <Mail className="w-3 h-3 mr-1" />
-                                          Unverified
-                                        </div>
-                                      )}
+                                    <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full">
+                                      Player
                                     </span>
-                                    <span className="text-xs text-gray-500 capitalize">{memberInfo?.role}</span>
+                                    {hasStats && (
+                                      <span className="text-xs text-gray-500">
+                                        {player.stats.matchesPlayed} matches played
+                                      </span>
+                                    )}
                                   </div>
-                                  {member.phone && (
-                                    <div className="text-xs text-gray-400 mt-1">{member.phone}</div>
-                                  )}
-                                  {!isVerified && (
-                                    <div className="text-xs text-orange-600 mt-1">
-                                      Can participate in matches • Sign up with {member.email} to verify
-                                    </div>
-                                  )}
+                                  <div className="text-xs text-green-600 mt-1">
+                                    ✅ Can participate in matches • Stats are tracked
+                                  </div>
                                 </div>
                               </div>
                               
                               <div className="flex items-center space-x-2">
+                                {hasStats && (
+                                  <div className="text-right text-xs text-gray-500">
+                                    <div>Runs: {player.stats.runsScored}</div>
+                                    <div>Avg: {player.stats.ballsFaced > 0 ? (player.stats.runsScored / player.stats.ballsFaced * 100).toFixed(1) : '0.0'}</div>
+                                  </div>
+                                )}
                                 {canRemove && (
                                   <button
-                                    onClick={() => handleRemoveUnverifiedMember(member.id, member.name)}
+                                    onClick={() => handleDeletePlayer(player.id, player.name)}
                                     className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-xs"
-                                    title="Remove unverified member"
+                                    title="Remove player"
                                   >
                                     Remove
                                   </button>
@@ -790,131 +839,15 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                             </div>
                           );
                         })}
-                      </div>
-                    </div>
-                  </div>
-                )}
 
-                {activeTab === 'players' && (
-                  <div className="space-y-6">
-                    {canManageGroup && (
-                      <div>
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-gray-900">Player Management</h3>
-                          <button
-                            onClick={() => setShowAddPlayerModal(true)}
-                            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                          >
-                            <Plus className="w-4 h-4" />
-                            <span>Add Player</span>
-                          </button>
-                        </div>
-
-                        <div className="p-4 bg-purple-50 rounded-lg">
-                          <div className="flex items-start space-x-3">
-                            <Star className="w-5 h-5 text-purple-600 mt-0.5" />
-                            <div className="text-sm text-purple-800">
-                              <p className="font-medium mb-1">Player Management:</p>
-                              <ul className="text-xs space-y-1 list-disc list-inside">
-                                <li>Add players who will participate in group matches</li>
-                                <li>Players can be group members or guests</li>
-                                <li>Stats are tracked automatically during matches</li>
-                                <li>Group members get full profile access, guests are temporary</li>
-                              </ul>
-                            </div>
+                        {players.length === 0 && (
+                          <div className="text-center py-8">
+                            <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                            <p className="text-gray-500 mb-2">No players in this group yet</p>
+                            <p className="text-sm text-gray-400">Add players using the buttons above</p>
                           </div>
-                        </div>
+                        )}
                       </div>
-                    )}
-
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 mb-4">Team Players</h3>
-                      {players.length === 0 ? (
-                        <div className="text-center py-12">
-                          <Star className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                          <h3 className="text-lg font-medium text-gray-900 mb-2">No players yet</h3>
-                          <p className="text-gray-500 mb-6">Start by adding some players to your group</p>
-                          {canManageGroup && (
-                            <button
-                              onClick={() => setShowAddPlayerModal(true)}
-                              className="inline-flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                            >
-                              <Plus className="w-5 h-5" />
-                              <span>Add First Player</span>
-                            </button>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                          {players.map((player) => {
-                            const stats = getPlayerMatchStats(player);
-                            
-                            return (
-                              <div key={player.id} className="bg-gradient-to-br from-white to-gray-50 p-6 border border-gray-200 rounded-xl hover:shadow-md transition-shadow">
-                                <div className="flex items-center justify-between mb-4">
-                                  <div className="flex items-center space-x-3">
-                                    <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                                      {player.photoUrl ? (
-                                        <img src={player.photoUrl} alt={player.name} className="w-full h-full object-cover rounded-full" />
-                                      ) : (
-                                        <span className="font-semibold text-blue-600 text-lg">
-                                          {player.name.charAt(0).toUpperCase()}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div>
-                                      <h4 className="font-semibold text-gray-900">{player.name}</h4>
-                                      <div className="flex items-center space-x-2">
-                                        <span className={`px-2 py-1 text-xs rounded-full ${
-                                          player.isGroupMember 
-                                            ? 'bg-green-100 text-green-700' 
-                                            : 'bg-orange-100 text-orange-700'
-                                        }`}>
-                                          {player.isGroupMember ? 'Member' : 'Guest'}
-                                        </span>
-                                        {player.shortId && (
-                                          <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full font-mono">
-                                            {player.shortId}
-                                          </span>
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {canManageGroup && (
-                                    <button
-                                      onClick={() => handleDeletePlayer(player.id, player.name)}
-                                      className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                      title="Remove player"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
-                                  )}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4 text-sm">
-                                  <div>
-                                    <div className="text-gray-500">Matches</div>
-                                    <div className="font-semibold text-gray-900">{stats.matches}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Runs</div>
-                                    <div className="font-semibold text-gray-900">{stats.runs}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Average</div>
-                                    <div className="font-semibold text-gray-900">{stats.average}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-gray-500">Wickets</div>
-                                    <div className="font-semibold text-gray-900">{stats.wickets}</div>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
                     </div>
                   </div>
                 )}
@@ -973,6 +906,77 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                 </div>
               </div>
             </div>
+
+            {/* Debug Information */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-2xl p-4 mb-6">
+              <h3 className="text-sm font-semibold text-yellow-900 mb-2">🔍 Debug Information</h3>
+              <div className="text-xs text-yellow-800 space-y-1">
+                <p><strong>Current User:</strong> {currentUser?.name} (ID: {currentUser?.id})</p>
+                <p><strong>Current Group:</strong> {currentGroup?.name} (ID: {currentGroup?.id})</p>
+                <p><strong>Group Created By:</strong> {currentGroup?.createdBy}</p>
+                <p><strong>Can Manage Group:</strong> {canManageGroup ? '✅ YES' : '❌ NO'}</p>
+                <p><strong>Group Admins:</strong> {currentGroup?.admins?.join(', ') || 'None'}</p>
+                {!canManageGroup && (
+                  <p className="mt-2 text-yellow-700 font-medium">
+                    ⚠️ You don't have management permissions. Only group creators and admins can delete groups.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Dangerous Actions - Group Deletion */}
+            {canManageGroup ? (
+              <div className="bg-red-50 border border-red-200 rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-red-900 mb-4 flex items-center">
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  Dangerous Zone
+                </h3>
+                
+                <div className="space-y-4">
+                  <div className="bg-white rounded-lg p-4 border border-red-200">
+                    <h4 className="font-medium text-red-900 mb-2">Delete Group</h4>
+                    <p className="text-sm text-red-700 mb-4">
+                      Permanently delete this group and all associated data. This action cannot be undone.
+                      This will remove:
+                    </p>
+                    <ul className="text-xs text-red-600 list-disc list-inside mb-4 space-y-1">
+                      <li>All group members and their associations</li>
+                      <li>All players in this group</li>
+                      <li>All matches played by this group</li>
+                      <li>All statistics and scorecard data</li>
+                      <li>The group invite code will become invalid</li>
+                    </ul>
+                    <button
+                      onClick={() => setShowDeleteGroupModal(true)}
+                      className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                      <span>Delete Group</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gray-50 border border-gray-200 rounded-2xl p-6">
+                <h3 className="text-lg font-semibold text-gray-700 mb-4 flex items-center">
+                  <AlertCircle className="w-5 h-5 mr-2" />
+                  Group Deletion (No Permission)
+                </h3>
+                <div className="bg-white rounded-lg p-4 border border-gray-200">
+                  <h4 className="font-medium text-gray-700 mb-2">Delete Group</h4>
+                  <p className="text-sm text-gray-600 mb-4">
+                    Only group creators and administrators can delete groups. Contact your group admin to delete this group.
+                  </p>
+                  <button
+                    disabled
+                    className="flex items-center space-x-2 px-4 py-2 bg-gray-300 text-gray-500 rounded-lg cursor-not-allowed text-sm font-medium"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Group (Not Authorized)</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1097,7 +1101,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               <h2 className="text-xl font-bold text-gray-900">Add Player to Group</h2>
               <p className="text-sm text-gray-600 mt-1">Add someone to your cricket group as a player</p>
             </div>
-            <form onSubmit={handleAddMemberByEmail} className="p-6 space-y-4">
+            <form onSubmit={handleAddPlayerByEmail} className="p-6 space-y-4">
               {error && (
                 <div className="bg-red-50 border border-red-200 rounded-lg p-3">
                   <p className="text-red-700 text-sm">{error}</p>
@@ -1208,7 +1212,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                   onClick={() => {
                     setShowBulkImport(false);
                     setBulkImportText('');
-                    setPreviewMembers([]);
+                    setPreviewPlayers([]);
                     setImportStep('input');
                   }}
                   className="text-white hover:text-gray-200"
@@ -1331,16 +1335,16 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-semibold">Preview Import Results</h4>
-                      <span className="text-sm text-gray-600">{previewMembers.length} players found</span>
+                      <span className="text-sm text-gray-600">{previewPlayers.length} players found</span>
                     </div>
                     
-                    {previewMembers.length === 0 ? (
+                    {previewPlayers.length === 0 ? (
                       <div className="text-center py-8">
                         <p className="text-gray-500">No valid players found. Please check your format and try again.</p>
                       </div>
                     ) : (
                       <div className="max-h-64 overflow-y-auto border rounded-lg">
-                        {previewMembers.map((member, index) => (
+                        {previewPlayers.map((member, index) => (
                           <div key={index} className="flex items-center justify-between p-3 border-b last:border-b-0">
                             <div>
                               <div className="font-medium">{member.name}</div>
@@ -1363,10 +1367,10 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     </button>
                     <button
                       onClick={handleBulkImportConfirm}
-                      disabled={previewMembers.length === 0}
+                      disabled={previewPlayers.length === 0}
                       className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Import {previewMembers.length} Players
+                      Import {previewPlayers.length} Players
                     </button>
                   </div>
                 </>
@@ -1390,6 +1394,85 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         onPlayerAdded={handlePlayerAdded}
         groupId={currentGroup?.id}
       />
+
+      {/* Delete Group Confirmation Modal */}
+      {showDeleteGroupModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
+                <h2 className="text-xl font-bold text-red-900">Delete Group</h2>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-red-700 text-sm">{error}</p>
+                </div>
+              )}
+              
+              <div className="bg-red-50 rounded-lg p-4">
+                <p className="text-red-800 text-sm mb-3 font-medium">
+                  ⚠️ This action will permanently delete the group "{currentGroup?.name}" and ALL associated data:
+                </p>
+                <ul className="text-xs text-red-700 list-disc list-inside space-y-1">
+                  <li>{currentGroup?.members.length} group members will lose access</li>
+                  <li>{players.length} players will be removed</li>
+                  <li>All match history and statistics will be deleted</li>
+                  <li>The invite code "{currentGroup?.inviteCode}" will become invalid</li>
+                  <li>This action cannot be undone</li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Type the group name <span className="font-mono text-red-600">"{currentGroup?.name}"</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={`Type "${currentGroup?.name}" here`}
+                  className="w-full px-3 py-2 border border-red-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDeleteGroupModal(false);
+                  setDeleteConfirmText('');
+                  setError('');
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteGroup}
+                disabled={loading || deleteConfirmText !== currentGroup?.name}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Group Forever</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

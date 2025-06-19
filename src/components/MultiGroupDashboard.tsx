@@ -234,7 +234,7 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-2xl font-bold text-gray-900">{totalStats.totalMembers}</div>
-                <div className="text-sm text-gray-600">Total Members</div>
+                <div className="text-sm text-gray-600">Total Players</div>
               </div>
               <Users className="w-8 h-8 text-green-600" />
             </div>
@@ -285,11 +285,11 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
                   <React.Fragment key={overview.group.id}>
                     <div className="bg-gray-50 rounded-lg p-4 text-center">
                       <div className="text-xl font-bold text-gray-900">{overview.memberCount}</div>
-                      <div className="text-sm text-gray-600">Members</div>
+                      <div className="text-sm text-gray-600">Players</div>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-4 text-center">
                       <div className="text-xl font-bold text-gray-900">{overview.playerCount}</div>
-                      <div className="text-sm text-gray-600">Players</div>
+                      <div className="text-sm text-gray-600">Active Players</div>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-4 text-center">
                       <div className="text-xl font-bold text-gray-900">{overview.matchCount}</div>

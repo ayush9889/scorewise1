@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Trophy, TrendingUp, Target, Award, Users, Download, Upload, User, RefreshCw, MessageCircle, Share2, AlertCircle, Cloud, CloudOff, Wifi, WifiOff, Search, ArrowLeft, BarChart3 } from 'lucide-react';
+import { Trophy, TrendingUp, Target, Award, Users, Download, Upload, User, RefreshCw, MessageCircle, Share2, AlertCircle, Cloud, CloudOff, Wifi, WifiOff, Search, ArrowLeft, BarChart3, Trash2 } from 'lucide-react';
 import { Player, Match } from '../types/cricket';
 import { PlayerDashboard } from './PlayerDashboard';
 import { DetailedScorecardModal } from './DetailedScorecardModal';
@@ -44,6 +44,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
   const [currentGroup, setCurrentGroup] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(authService.getCurrentUser());
   const [showCloudMigration, setShowCloudMigration] = useState(false);
+  const [showDeleteMatchModal, setShowDeleteMatchModal] = useState(false);
+  const [matchToDelete, setMatchToDelete] = useState<Match | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -408,6 +410,42 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
     } catch (error) {
       console.error('❌ Cross-device test failed:', error);
       alert('❌ Test failed: ' + error.message);
+    }
+  };
+
+  const handleDeleteMatch = async () => {
+    if (!matchToDelete) return;
+
+    setLoading(true);
+    try {
+      console.log('🗑️ Deleting match:', matchToDelete.id);
+
+      // Delete from cloud storage first
+      try {
+        await cloudStorageService.deleteMatch(matchToDelete.id);
+        console.log('☁️ Match deleted from cloud');
+      } catch (error) {
+        console.warn('⚠️ Failed to delete from cloud:', error);
+      }
+
+      // Delete from local storage
+      await storageService.deleteMatch(matchToDelete.id);
+      console.log('💾 Match deleted from local storage');
+
+      // Update the matches list
+      setMatches(matches.filter(m => m.id !== matchToDelete.id));
+      setIncompleteMatches(incompleteMatches.filter(m => m.id !== matchToDelete.id));
+
+      // Close modal
+      setShowDeleteMatchModal(false);
+      setMatchToDelete(null);
+
+      console.log('✅ Match deleted successfully');
+    } catch (error) {
+      console.error('❌ Failed to delete match:', error);
+      setError('Failed to delete match. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -917,6 +955,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
                           Resume
                         </button>
                       )}
+                      {currentGroup && authService.canUserManageGroup(currentGroup.id) && (
+                        <button
+                          className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-semibold flex items-center space-x-1"
+                          onClick={() => {
+                            setMatchToDelete(match);
+                            setShowDeleteMatchModal(true);
+                          }}
+                          title="Delete match"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1007,6 +1057,72 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
         <CloudMigrationStatus
           onClose={() => setShowCloudMigration(false)}
         />
+      )}
+
+      {/* Delete Match Confirmation Modal */}
+      {showDeleteMatchModal && matchToDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl w-full max-w-md">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center">
+                <AlertCircle className="w-6 h-6 text-red-600 mr-3" />
+                <h2 className="text-xl font-bold text-red-900">Delete Match</h2>
+              </div>
+            </div>
+            
+            <div className="p-6 space-y-4">
+              <div className="bg-red-50 rounded-lg p-4">
+                <p className="text-red-800 text-sm mb-3 font-medium">
+                  ⚠️ Are you sure you want to delete this match?
+                </p>
+                <div className="text-sm text-red-700 space-y-2">
+                  <p><strong>Match:</strong> {matchToDelete.team1.name} vs {matchToDelete.team2.name}</p>
+                  <p><strong>Date:</strong> {new Date(matchToDelete.startTime).toLocaleDateString()}</p>
+                  <p><strong>Status:</strong> {matchToDelete.isCompleted ? 'Completed' : 'In Progress'}</p>
+                </div>
+                <div className="mt-3 text-xs text-red-600">
+                  This will permanently delete:
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    <li>All scorecard data and statistics</li>
+                    <li>Player performance records from this match</li>
+                    <li>All balls, overs, and scoring information</li>
+                    <li>This action cannot be undone</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 p-6 border-t border-gray-200">
+              <button
+                onClick={() => {
+                  setShowDeleteMatchModal(false);
+                  setMatchToDelete(null);
+                }}
+                className="px-4 py-2 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteMatch}
+                disabled={loading}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+              >
+                {loading ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Delete Match</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

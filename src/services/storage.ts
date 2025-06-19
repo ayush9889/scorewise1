@@ -1317,6 +1317,79 @@ class StorageService {
       };
     }
   }
+
+  // Delete methods
+  async deleteMatch(matchId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🗑️ Deleting match from local storage:', matchId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['matches'], 'readwrite');
+      const store = transaction.objectStore('matches');
+      const request = store.delete(matchId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('✅ Match deleted from local storage');
+        resolve();
+      };
+    });
+  }
+
+  async deletePlayer(playerId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🗑️ Deleting player from local storage:', playerId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['players'], 'readwrite');
+      const store = transaction.objectStore('players');
+      const request = store.delete(playerId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('✅ Player deleted from local storage');
+        resolve();
+      };
+    });
+  }
+
+  async deleteGroup(groupId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🗑️ Deleting group from local storage:', groupId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['groups'], 'readwrite');
+      const store = transaction.objectStore('groups');
+      const request = store.delete(groupId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('✅ Group deleted from local storage');
+        resolve();
+      };
+    });
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    console.log('🗑️ Deleting user from local storage:', userId);
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction(['users'], 'readwrite');
+      const store = transaction.objectStore('users');
+      const request = store.delete(userId);
+
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        console.log('✅ User deleted from local storage');
+        resolve();
+      };
+    });
+  }
 }
 
 export const storageService = new StorageService();

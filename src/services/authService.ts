@@ -1520,8 +1520,13 @@ class AuthService {
     const group = this.currentGroups.find(g => g.id === groupId);
     if (!group) return false;
 
-    const member = group.members.find(m => m.userId === this.currentUser!.id);
-    return member?.permissions.canManageMembers || false;
+    // Check if user is the group creator/admin
+    if (group.createdBy === this.currentUser.id) return true;
+    if (group.admins && group.admins.includes(this.currentUser.id)) return true;
+
+    // Check member permissions (fallback for older groups)
+    const member = group.members?.find(m => m.userId === this.currentUser.id);
+    return member?.permissions?.canManageMembers || false;
   }
 
   async removeUnverifiedMember(groupId: string, userId: string): Promise<void> {
@@ -1786,6 +1791,141 @@ class AuthService {
 
     const identifier = this.currentUser.email || this.currentUser.phone || '';
     return await storageService.exportUserData(identifier);
+  }
+
+  // Delete group and all associated data
+  async deleteGroup(groupId: string): Promise<void> {
+    if (!this.currentUser) {
+      throw new Error('No user signed in');
+    }
+
+    console.log('🗑️ Starting group deletion process for:', groupId);
+
+    // Check if user has permission to delete the group
+    if (!this.canUserManageGroup(groupId)) {
+      throw new Error('You do not have permission to delete this group');
+    }
+
+    try {
+      // 1. Get group details before deletion for cleanup
+      const group = this.currentGroups.find(g => g.id === groupId);
+      if (!group) {
+        throw new Error('Group not found');
+      }
+
+      console.log('🗑️ Deleting group:', group.name);
+
+      // 2. Delete from cloud storage first
+      try {
+        await cloudStorageService.deleteGroup(groupId);
+        console.log('☁️ Group deleted from cloud storage');
+      } catch (error) {
+        console.warn('⚠️ Failed to delete from cloud, continuing with local deletion:', error);
+      }
+
+      // 3. Delete group-related data from local storage
+      // Delete all group players
+      const groupPlayers = await storageService.getGroupPlayers(groupId);
+      for (const player of groupPlayers) {
+        try {
+          await storageService.deletePlayer(player.id);
+          // Also try to delete from cloud
+          try {
+            await cloudStorageService.deletePlayer(player.id);
+          } catch (cloudError) {
+            console.warn('⚠️ Failed to delete player from cloud:', cloudError);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to delete player:', player.name, error);
+        }
+      }
+
+      // Delete all group matches
+      const allMatches = await storageService.getAllMatches();
+      const groupMatches = allMatches.filter(match => {
+        const allMatchPlayers = [
+          ...match.team1.players,
+          ...match.team2.players,
+          ...(match.battingTeam?.players || []),
+          ...(match.bowlingTeam?.players || [])
+        ];
+        
+        return allMatchPlayers.some(player => 
+          player.isGroupMember && 
+          player.groupIds?.includes(groupId)
+        );
+      });
+
+      for (const match of groupMatches) {
+        try {
+          await storageService.deleteMatch(match.id);
+          // Also try to delete from cloud
+          try {
+            await cloudStorageService.deleteMatch(match.id);
+          } catch (cloudError) {
+            console.warn('⚠️ Failed to delete match from cloud:', cloudError);
+          }
+        } catch (error) {
+          console.warn('⚠️ Failed to delete match:', match.id, error);
+        }
+      }
+
+      // 4. Delete the group itself from local storage
+      await storageService.deleteGroup(groupId);
+
+      // 5. Update current user's group associations
+      if (this.currentUser.groupIds) {
+        this.currentUser.groupIds = this.currentUser.groupIds.filter(id => id !== groupId);
+        await storageService.saveUserProfile(this.currentUser);
+        localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
+      }
+
+      // 6. Update all group members to remove this group from their associations
+      try {
+        const groupMembers = await this.getGroupMembers(groupId);
+        for (const member of groupMembers) {
+          if (member.groupIds) {
+            member.groupIds = member.groupIds.filter(id => id !== groupId);
+            try {
+              await storageService.saveUserProfile(member);
+              // Also update in cloud if possible
+              try {
+                await cloudStorageService.saveUser(member);
+              } catch (cloudError) {
+                console.warn('⚠️ Failed to update member in cloud:', cloudError);
+              }
+            } catch (error) {
+              console.warn('⚠️ Failed to update member:', member.name, error);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Failed to update group members:', error);
+      }
+
+      // 7. Remove group from current groups list
+      this.currentGroups = this.currentGroups.filter(g => g.id !== groupId);
+      this.saveGroupsToStorage();
+
+      // 8. Clear current group if it was the deleted one
+      if (this.currentGroup?.id === groupId) {
+        this.currentGroup = null;
+        localStorage.removeItem('currentGroup');
+      }
+
+      // 9. Clean up localStorage backup entries
+      Object.keys(localStorage).forEach(key => {
+        if (key.includes(groupId)) {
+          localStorage.removeItem(key);
+        }
+      });
+
+      console.log('✅ Group deletion completed successfully');
+
+    } catch (error) {
+      console.error('❌ Group deletion failed:', error);
+      throw new Error(`Failed to delete group: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
 

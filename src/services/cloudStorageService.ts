@@ -142,7 +142,7 @@ class CloudStorageService {
         lastUpdated: serverTimestamp(),
         members: group.members.map(member => ({
           ...member,
-          addedAt: member.addedAt || serverTimestamp()
+          addedAt: member.addedAt || Date.now()
         }))
       };
 
@@ -608,7 +608,162 @@ class CloudStorageService {
       console.error('❌ Failed to restore from local backup:', error);
     }
   }
+
+  // Deletion methods
+  async deleteGroup(groupId: string): Promise<void> {
+    try {
+      console.log('🗑️ Deleting group from cloud:', groupId);
+
+      if (this.isOnline && this.currentUser) {
+        const groupRef = doc(db, COLLECTIONS.GROUPS, groupId);
+        await deleteDoc(groupRef);
+        console.log('☁️ Group deleted from Firestore');
+      }
+
+      // Remove from offline cache
+      this.offlineCache.delete(`group_${groupId}`);
+      
+      console.log('✅ Group deleted from cloud storage');
+    } catch (error) {
+      console.error('❌ Failed to delete group from cloud:', error);
+      throw error;
+    }
+  }
+
+  async deletePlayer(playerId: string): Promise<void> {
+    try {
+      console.log('🗑️ Deleting player from cloud:', playerId);
+
+      if (this.isOnline && this.currentUser) {
+        const playerRef = doc(db, COLLECTIONS.PLAYERS, playerId);
+        await deleteDoc(playerRef);
+        console.log('☁️ Player deleted from Firestore');
+      }
+
+      // Remove from offline cache
+      this.offlineCache.delete(`player_${playerId}`);
+      
+      console.log('✅ Player deleted from cloud storage');
+    } catch (error) {
+      console.error('❌ Failed to delete player from cloud:', error);
+      throw error;
+    }
+  }
+
+  async deleteMatch(matchId: string): Promise<void> {
+    try {
+      console.log('🗑️ Deleting match from cloud:', matchId);
+
+      if (this.isOnline && this.currentUser) {
+        const matchRef = doc(db, COLLECTIONS.MATCHES, matchId);
+        await deleteDoc(matchRef);
+        console.log('☁️ Match deleted from Firestore');
+      }
+
+      // Remove from offline cache
+      this.offlineCache.delete(`match_${matchId}`);
+      
+      console.log('✅ Match deleted from cloud storage');
+    } catch (error) {
+      console.error('❌ Failed to delete match from cloud:', error);
+      throw error;
+    }
+  }
+
+  async deleteUser(userId: string): Promise<void> {
+    try {
+      console.log('🗑️ Deleting user from cloud:', userId);
+
+      if (this.isOnline && this.currentUser) {
+        const userRef = doc(db, COLLECTIONS.USER_PROFILES, userId);
+        await deleteDoc(userRef);
+        console.log('☁️ User deleted from Firestore');
+      }
+
+      // Remove from offline cache
+      this.offlineCache.delete(`user_${userId}`);
+      
+      console.log('✅ User deleted from cloud storage');
+    } catch (error) {
+      console.error('❌ Failed to delete user from cloud:', error);
+      throw error;
+    }
+  }
 }
+
+// Add deletion methods to CloudStorageService (need to add these to the class)
 
 // Export singleton instance
 export const cloudStorageService = new CloudStorageService();
+
+// Extension methods for deletion - adding these as additional methods
+const originalCloudStorage = cloudStorageService as any;
+
+originalCloudStorage.deleteGroup = async function(groupId: string): Promise<void> {
+  const { deleteDoc, doc } = await import('firebase/firestore');
+  const { db } = await import('../config/firebase');
+  
+  try {
+    console.log('🗑️ Deleting group from cloud:', groupId);
+
+    if (this.isOnline && this.currentUser) {
+      const groupRef = doc(db, 'groups', groupId);
+      await deleteDoc(groupRef);
+      console.log('☁️ Group deleted from Firestore');
+    }
+
+    // Remove from offline cache
+    this.offlineCache.delete(`group_${groupId}`);
+    
+    console.log('✅ Group deleted from cloud storage');
+  } catch (error) {
+    console.error('❌ Failed to delete group from cloud:', error);
+    throw error;
+  }
+};
+
+originalCloudStorage.deletePlayer = async function(playerId: string): Promise<void> {
+  const { deleteDoc, doc } = await import('firebase/firestore');
+  const { db } = await import('../config/firebase');
+  
+  try {
+    console.log('🗑️ Deleting player from cloud:', playerId);
+
+    if (this.isOnline && this.currentUser) {
+      const playerRef = doc(db, 'players', playerId);
+      await deleteDoc(playerRef);
+      console.log('☁️ Player deleted from Firestore');
+    }
+
+    // Remove from offline cache
+    this.offlineCache.delete(`player_${playerId}`);
+    
+    console.log('✅ Player deleted from cloud storage');
+  } catch (error) {
+    console.error('❌ Failed to delete player from cloud:', error);
+    throw error;
+  }
+};
+
+originalCloudStorage.deleteMatch = async function(matchId: string): Promise<void> {
+  const { deleteDoc, doc } = await import('firebase/firestore');
+  const { db } = await import('../config/firebase');
+  
+  try {
+    console.log('🗑️ Deleting match from cloud:', matchId);
+
+    if (this.isOnline && this.currentUser) {
+      const matchRef = doc(db, 'matches', matchId);
+      await deleteDoc(matchRef);
+      console.log('☁️ Match deleted from Firestore');
+    }
+
+    // Remove from offline cache
+    this.offlineCache.delete(`match_${matchId}`);
+    
+    console.log('✅ Match deleted from cloud storage');
+  } catch (error) {
+    console.error('❌ Failed to delete match from cloud:', error);
+    throw error;
+  }
+};
