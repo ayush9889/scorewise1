@@ -97,40 +97,60 @@ export class DebugCloudSync {
   }
 
   // Check current sync status
-  static async checkSyncEnvironment(): Promise<{ status: string; details: any }> {
+  static async checkSyncEnvironment(): Promise<{ success: boolean; message: string; details: any }> {
     const currentUser = authService.getCurrentUser();
     const userIdentifier = currentUser?.email || currentUser?.phone;
 
-    return {
-      status: 'Environment Check',
-      details: {
-        user: {
-          exists: !!currentUser,
-          id: currentUser?.id,
-          name: currentUser?.name,
-          email: currentUser?.email,
-          phone: currentUser?.phone,
-          identifier: userIdentifier,
-          isGuest: currentUser?.isGuest
-        },
-        firebase: {
-          dbExists: !!db,
-          dbType: typeof db,
-          navigator: {
-            onLine: navigator.onLine,
-            userAgent: navigator.userAgent.substring(0, 100)
-          }
-        },
-        environment: {
-          nodeEnv: import.meta.env.NODE_ENV,
-          firebaseConfig: {
-            hasApiKey: !!import.meta.env.VITE_FIREBASE_API_KEY,
-            hasProjectId: !!import.meta.env.VITE_FIREBASE_PROJECT_ID,
-            projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID
-          }
+    const details = {
+      user: {
+        exists: !!currentUser,
+        id: currentUser?.id,
+        name: currentUser?.name,
+        email: currentUser?.email,
+        phone: currentUser?.phone,
+        identifier: userIdentifier,
+        isGuest: currentUser?.isGuest
+      },
+      firebase: {
+        dbExists: !!db,
+        dbType: typeof db,
+        navigator: {
+          onLine: navigator.onLine,
+          userAgent: navigator.userAgent.substring(0, 100)
+        }
+      },
+      environment: {
+        nodeEnv: import.meta.env.NODE_ENV,
+        firebaseConfig: {
+          hasApiKey: !!import.meta.env.VITE_FIREBASE_API_KEY,
+          hasProjectId: !!import.meta.env.VITE_FIREBASE_PROJECT_ID,
+          projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID
         }
       }
     };
+
+    // Determine if environment is properly configured
+    const isConfigured = details.firebase.dbExists && 
+                        details.environment.firebaseConfig.hasProjectId && 
+                        details.firebase.navigator.onLine;
+
+    console.log('🧪 Testing environment configuration...');
+    
+    if (isConfigured) {
+      console.log('✅ Environment check passed');
+      return {
+        success: true,
+        message: 'Environment properly configured for cloud sync',
+        details
+      };
+    } else {
+      console.log('❌ Environment check failed');
+      return {
+        success: false,
+        message: 'Environment configuration issues detected',
+        details
+      };
+    }
   }
 
   // Run all tests
@@ -167,6 +187,13 @@ export class DebugCloudSync {
     const summary = `${successful}/${total} tests passed`;
 
     console.log('🧪 Debug tests completed:', summary);
+    
+    // Log each test result for clarity
+    tests.forEach(test => {
+      const status = test.result.success ? '✅' : '❌';
+      console.log(`${status} ${test.name}: ${test.result.message}`);
+    });
+
     return { tests, summary };
   }
 }
