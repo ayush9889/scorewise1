@@ -27,7 +27,8 @@ const isOnline = () => navigator.onLine;
 // Check if Firebase is working properly
 const isFirebaseWorking = () => {
   try {
-    return db && typeof db.collection === 'function';
+    // For Firebase v9+, we check if db exists and is properly initialized
+    return db && typeof db === 'object' && db._delegate;
   } catch (error) {
     console.warn('⚠️ Firebase not working properly:', error);
     return false;
@@ -520,6 +521,27 @@ export const cloudStorageService = {
     }
   },
 
+  // Test Firebase connection
+  async testConnection(): Promise<void> {
+    if (!isOnline()) {
+      throw new Error('Device is offline');
+    }
+    
+    if (!isFirebaseWorking()) {
+      throw new Error('Firebase not initialized properly');
+    }
+    
+    try {
+      // Test connection with a simple read
+      const testRef = doc(db, 'connection_test', 'test');
+      await getDoc(testRef);
+      console.log('✅ Firebase connection test successful');
+    } catch (error: any) {
+      console.error('❌ Firebase connection test failed:', error);
+      throw new Error(`Firebase connection failed: ${error.message}`);
+    }
+  },
+
   // Check connection and sync status
   async checkConnection(): Promise<{ online: boolean, firebaseWorking: boolean, lastSync?: Date }> {
     const online = isOnline();
@@ -529,8 +551,7 @@ export const cloudStorageService = {
     try {
       if (online && firebaseWorking) {
         // Test connection with a simple read
-        const testRef = doc(db, 'connection_test', 'test');
-        await getDoc(testRef);
+        await this.testConnection();
         lastSync = new Date();
       }
     } catch (error) {

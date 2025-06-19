@@ -33,7 +33,7 @@ function App() {
     online: boolean;
     firebaseWorking: boolean;
     lastSync?: Date;
-  }>({ online: false, firebaseWorking: false });
+  }>({ online: navigator.onLine, firebaseWorking: false });
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const [activeMatch, setActiveMatch] = useState<Match | null>(null);
 
@@ -73,10 +73,29 @@ function App() {
       }
     };
 
-    // Add event listeners for app close and visibility change
+    // Handle online/offline status changes
+    const handleOnline = () => {
+      console.log('📶 Device came online');
+      setConnectionStatus(prev => ({ ...prev, online: true }));
+      // Test Firebase connection when coming online
+      cloudStorageService.checkConnection().then(status => {
+        setConnectionStatus(status);
+      }).catch(error => {
+        console.warn('Failed to check connection:', error);
+      });
+    };
+    
+    const handleOffline = () => {
+      console.log('📵 Device went offline');
+      setConnectionStatus(prev => ({ ...prev, online: false, firebaseWorking: false }));
+    };
+
+    // Add event listeners for app close, visibility change, and online/offline
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('pagehide', handleBeforeUnload);
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     
     // Cleanup function
     return () => {
@@ -84,6 +103,8 @@ function App() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('pagehide', handleBeforeUnload);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
       storageService.stopAutoBackup();
     };
   }, []);
