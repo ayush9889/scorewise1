@@ -156,7 +156,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         throw new Error('Invalid email address format. Please enter a valid email address.');
       }
 
-      console.log('📧 Adding member by email:', inviteName, inviteEmail);
+      console.log('📧 Adding player by email:', inviteName, inviteEmail);
       
       // Check if user already exists with this email
       let user = await authService.findUserByEmail(inviteEmail.trim());
@@ -226,7 +226,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       }
       
       // Show success message
-      alert(`✅ ${inviteName} has been added to the group!\n\n📧 They will receive an email invitation to join.\n\n🏏 They can now participate in matches and will appear in group statistics.\n\n🔐 To access personalized features, they need to sign up with their email: ${inviteEmail.trim()}`);
+      alert(`✅ ${inviteName} has been added as a player to the group!\n\n📧 They will receive an email invitation to join.\n\n🏏 They can now participate in matches and their stats will be tracked.\n\n🔐 To access their full player profile, they need to sign up with their email: ${inviteEmail.trim()}`);
       
       // Close modal and reset form
       setShowInviteModal(false);
@@ -234,10 +234,10 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       setInviteEmail('');
       setInvitePhone('');
       
-      // CRITICAL FIX: Reload group data to show the new member
+      // CRITICAL FIX: Reload group data to show the new player
       await loadGroupData();
       
-      console.log('✅ Member added successfully, group data reloaded');
+      console.log('✅ Player added successfully, group data reloaded');
     } catch (err) {
       console.error('❌ Failed to add member:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to add member';
@@ -552,15 +552,15 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
             {/* Member Management Actions */}
             {canManageGroup && (
               <div className="bg-white rounded-2xl shadow-lg p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Member Management</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Player Management</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <button
                     onClick={() => setShowInviteModal(true)}
                     className="p-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition-colors"
                   >
                     <UserPlus className="w-6 h-6 text-green-600 mx-auto mb-2" />
-                    <div className="text-sm font-medium text-green-700">Add Member</div>
-                    <div className="text-xs text-green-600">Add one member manually</div>
+                    <div className="text-sm font-medium text-green-700">Add Player</div>
+                    <div className="text-xs text-green-600">Add one player manually</div>
                   </button>
 
                   <button
@@ -569,7 +569,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                   >
                     <MessageCircle className="w-6 h-6 text-blue-600 mx-auto mb-2" />
                     <div className="text-sm font-medium text-blue-700">🚀 Import from WhatsApp</div>
-                    <div className="text-xs text-blue-600">Bulk import multiple members</div>
+                    <div className="text-xs text-blue-600">Bulk import multiple players</div>
                   </button>
 
                   <button
@@ -588,11 +588,11 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     <div className="text-sm text-blue-800">
                       <p className="font-medium mb-1">How it works:</p>
                       <ul className="text-xs space-y-1 list-disc list-inside">
-                        <li><strong>Add Member:</strong> Add individual members by email</li>
+                        <li><strong>Add Player:</strong> Add individual players by email</li>
                         <li><strong>🚀 WhatsApp Import:</strong> Bulk import your entire WhatsApp group in seconds!</li>
                         <li><strong>Share Code:</strong> Let others join using the group invite code</li>
-                        <li>Members can participate in matches immediately and appear in statistics</li>
-                        <li>They need to verify with the same email for personalized features</li>
+                        <li>Players can participate in matches immediately and their stats will be tracked</li>
+                        <li>They need to verify with the same email for full player profile access</li>
                       </ul>
                     </div>
                   </div>
@@ -600,10 +600,10 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               </div>
             )}
 
-            {/* Members List */}
+            {/* Players List */}
             <div className="bg-white rounded-2xl shadow-lg p-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Members ({members.length})
+                Players ({members.length})
               </h3>
               <div className="space-y-3">
                 {members.map((member) => {
@@ -709,7 +709,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                     </button>
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
-                    Share this code with new members to join the group
+                    Share this code with new players to join the group
                   </p>
                 </div>
 
@@ -858,8 +858,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-2xl w-full max-w-md">
             <div className="p-6 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">Add Member to Group</h2>
-              <p className="text-sm text-gray-600 mt-1">Add someone to your cricket group by email address</p>
+              <h2 className="text-xl font-bold text-gray-900">Add Player to Group</h2>
+              <p className="text-sm text-gray-600 mt-1">Add someone to your cricket group as a player</p>
             </div>
             <form onSubmit={handleAddMemberByEmail} className="p-6 space-y-4">
               {error && (
@@ -924,10 +924,10 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               <div className="bg-blue-50 rounded-lg p-4">
                 <h4 className="font-medium text-blue-900 mb-2">What happens next:</h4>
                 <ul className="text-sm text-blue-800 space-y-1">
-                  <li>• They'll be added to your group immediately</li>
-                  <li>• They can participate in matches and appear in statistics</li>
+                  <li>• They'll be added as a player to your group immediately</li>
+                  <li>• They can participate in matches and their stats will be tracked</li>
                   <li>• They'll receive an email invitation to join</li>
-                  <li>• Once they sign up, they can access personalized features</li>
+                  <li>• Once they sign up, they can access their full player profile</li>
                 </ul>
               </div>
               
@@ -937,7 +937,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                   disabled={loading}
                   className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
-                  {loading ? 'Adding...' : 'Add Member'}
+                  {loading ? 'Adding...' : 'Add Player'}
                 </button>
                 <button
                   type="button"
@@ -965,8 +965,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
             <div className="bg-gradient-to-r from-blue-600 to-green-600 p-6 text-white">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-xl font-bold">🚀 Bulk Import Members</h3>
-                  <p className="text-blue-100 mt-1">Quickly add multiple members to your group</p>
+                  <h3 className="text-xl font-bold">🚀 Bulk Import Players</h3>
+                  <p className="text-blue-100 mt-1">Quickly add multiple players to your group</p>
                 </div>
                 <button
                   onClick={() => {
@@ -1040,7 +1040,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                       <div className="text-sm text-gray-600 space-y-1">
                         <p>• Format: Name, Email, Phone (optional)</p>
                         <p>• Example: "John Doe, john@email.com, +1234567890"</p>
-                        <p>• One member per line</p>
+                        <p>• One player per line</p>
                       </div>
                     )}
                     {importFormat === 'manual' && (
@@ -1095,12 +1095,12 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                   <div className="mb-6">
                     <div className="flex items-center justify-between mb-4">
                       <h4 className="text-lg font-semibold">Preview Import Results</h4>
-                      <span className="text-sm text-gray-600">{previewMembers.length} members found</span>
+                      <span className="text-sm text-gray-600">{previewMembers.length} players found</span>
                     </div>
                     
                     {previewMembers.length === 0 ? (
                       <div className="text-center py-8">
-                        <p className="text-gray-500">No valid members found. Please check your format and try again.</p>
+                        <p className="text-gray-500">No valid players found. Please check your format and try again.</p>
                       </div>
                     ) : (
                       <div className="max-h-64 overflow-y-auto border rounded-lg">
@@ -1130,7 +1130,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
                       disabled={previewMembers.length === 0}
                       className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      Import {previewMembers.length} Members
+                      Import {previewMembers.length} Players
                     </button>
                   </div>
                 </>
@@ -1139,7 +1139,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
               {importStep === 'importing' && (
                 <div className="text-center py-8">
                   <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                  <p className="text-gray-600">Importing members...</p>
+                  <p className="text-gray-600">Importing players...</p>
                 </div>
               )}
             </div>

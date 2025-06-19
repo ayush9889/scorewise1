@@ -359,16 +359,16 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
 
                   <div className="grid grid-cols-3 gap-3 mb-4">
                     <div className="text-center">
-                      <div className="text-lg font-bold text-gray-900">{overview.memberCount}</div>
-                      <div className="text-xs text-gray-600">Members</div>
-                    </div>
-                    <div className="text-center">
                       <div className="text-lg font-bold text-gray-900">{overview.playerCount}</div>
                       <div className="text-xs text-gray-600">Players</div>
                     </div>
                     <div className="text-center">
                       <div className="text-lg font-bold text-gray-900">{overview.matchCount}</div>
                       <div className="text-xs text-gray-600">Matches</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-lg font-bold text-gray-900">{overview.recentMatches.length}</div>
+                      <div className="text-xs text-gray-600">Recent</div>
                     </div>
                   </div>
 

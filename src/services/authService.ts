@@ -858,6 +858,41 @@ class AuthService {
 
     await storageService.saveGroup(group);
     
+    // CRITICAL: Create a player profile for the joining user
+    const newPlayer = {
+      id: `player_${this.currentUser.id}`,
+      name: this.currentUser.name,
+      shortId: this.currentUser.name.split(' ').map(n => n.charAt(0)).join('').toUpperCase(),
+      photoUrl: this.currentUser.photoUrl,
+      isGroupMember: true,
+      isGuest: false,
+      groupIds: [group.id],
+      stats: {
+        matchesPlayed: 0,
+        runsScored: 0,
+        ballsFaced: 0,
+        fours: 0,
+        sixes: 0,
+        fifties: 0,
+        hundreds: 0,
+        highestScore: 0,
+        timesOut: 0,
+        wicketsTaken: 0,
+        ballsBowled: 0,
+        runsConceded: 0,
+        catches: 0,
+        runOuts: 0,
+        motmAwards: 0,
+        ducks: 0,
+        dotBalls: 0,
+        maidenOvers: 0,
+        bestBowlingFigures: '0/0'
+      }
+    };
+    
+    await storageService.savePlayer(newPlayer);
+    console.log('🏏 Created player profile for joining user:', newPlayer.name);
+    
     // Add group to user's group list
     if (!this.currentUser.groupIds) {
       this.currentUser.groupIds = [];
@@ -871,6 +906,7 @@ class AuthService {
     this.currentGroups.push(group);
     this.saveGroupsToStorage();
     
+    console.log('✅ User successfully joined group and became a player:', group.name);
     return group;
   }
 
