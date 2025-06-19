@@ -3,6 +3,7 @@ import { Player } from '../types/cricket';
 import { storageService } from './storage';
 import { firebasePhoneAuthService } from './firebasePhoneAuthService';
 import { firebaseAuthService } from './firebaseAuthService';
+import { userCloudSyncService } from './userCloudSyncService';
 
 class AuthService {
   private currentUser: User | null = null;
@@ -31,6 +32,14 @@ class AuthService {
           // Restore user's groups
           await this.loadUserGroups();
           console.log('✅ User groups restored:', this.currentGroups.length);
+          
+          // Initialize cloud sync for cross-device synchronization
+          if (firebaseUser.email || firebaseUser.phone) {
+            userCloudSyncService.initializeUserSync(firebaseUser).catch(error => {
+              console.warn('⚠️ Cloud sync initialization failed during session restore:', error);
+            });
+          }
+          
           return;
         }
       }
@@ -44,6 +53,13 @@ class AuthService {
         // Restore user's groups
         await this.loadUserGroups();
         console.log('✅ User groups restored:', this.currentGroups.length);
+        
+        // Initialize cloud sync for cross-device synchronization
+        if (this.currentUser && (this.currentUser.email || this.currentUser.phone)) {
+          userCloudSyncService.initializeUserSync(this.currentUser).catch(error => {
+            console.warn('⚠️ Cloud sync initialization failed during session restore:', error);
+          });
+        }
       } else {
         console.log('ℹ️ No stored user session found');
       }
@@ -191,6 +207,13 @@ class AuthService {
     this.loadUserGroups().catch(error => {
       console.warn('⚠️ Background group loading failed:', error);
     });
+    
+    // Initialize cloud sync for cross-device synchronization
+    if (user.phone) {
+      userCloudSyncService.initializeUserSync(user).catch(error => {
+        console.warn('⚠️ Cloud sync initialization failed:', error);
+      });
+    }
     
     console.log('🎉 Phone sign-in completed for:', user.name);
     return user;
@@ -688,11 +711,21 @@ class AuthService {
       console.warn('⚠️ Background group loading failed:', error);
     });
     
+    // Initialize cloud sync for cross-device synchronization
+    if (user.email) {
+      userCloudSyncService.initializeUserSync(user).catch(error => {
+        console.warn('⚠️ Cloud sync initialization failed:', error);
+      });
+    }
+    
     console.log('🎉 Email sign-in completed for:', user.name);
     return user;
   }
 
   async signOut(): Promise<void> {
+    // Stop cloud sync subscriptions
+    userCloudSyncService.stopSync();
+    
     // Sign out from Firebase if available
     if (firebaseAuthService.isAvailable()) {
       try {

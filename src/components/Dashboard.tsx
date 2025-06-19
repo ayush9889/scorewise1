@@ -11,6 +11,7 @@ import { PDFService } from '../services/pdfService';
 import { LiveScorer } from './LiveScorer';
 import { authService } from '../services/authService';
 import { GroupSelector } from './GroupSelector';
+import { CloudSyncStatus } from './CloudSyncStatus';
 
 interface DashboardProps {
   onBack: () => void;
@@ -713,6 +714,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
             </div>
           </div>
         </div>
+
+        {/* Cloud Sync Status */}
+        <CloudSyncStatus className="mb-8" />
 
         {/* Recent Matches */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-8">
