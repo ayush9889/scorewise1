@@ -1052,16 +1052,16 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         />
       )}
 
-      {/* CRITICAL: Bowler Selector Modal with ABSOLUTE filtering and MANDATORY selection */}
+      {/* IMPROVED: Simple Bowler Selector using PlayerSelector - Just like Batsman Selection */}
       {showBowlerSelector && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden">
-            <div className="bg-gradient-to-r from-red-500 to-orange-500 p-6 text-white">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold">🚫 MANDATORY: Select New Bowler</h2>
-                <button
-                  onClick={() => {
-                    console.log('🔧 BOWLER SELECTOR CLOSE ATTEMPTED');
+        <PlayerSelector
+          title={needsBowlerChange ? "🚫 MANDATORY: Select New Bowler" : "Select Bowler"}
+          onPlayerSelect={(player) => {
+            console.log(`🎯 BOWLER SELECTED VIA PLAYERSELECTOR: ${player.name}`);
+            handleBowlerChange(player);
+          }}
+          onClose={() => {
+            console.log('🔧 BOWLER SELECTOR CLOSE ATTEMPTED');
             // CRITICAL: Don't allow closing without selecting a bowler when it's mandatory
             if (needsBowlerChange) {
               alert('🚫 You MUST select a new bowler to continue!\n\nSame bowler cannot bowl consecutive overs.\n\nThis is a fundamental cricket rule.');
@@ -1071,232 +1071,13 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
             setOverCompleteMessage(null);
             setNeedsBowlerChange(false);
           }}
-                  className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <p className="text-sm mt-2 opacity-90">Cannot Bowl Consecutive Overs</p>
-            </div>
-
-            <div className="p-4 max-h-96 overflow-y-auto">
-              <div className="mb-4">
-                <h3 className="font-semibold text-gray-900 mb-3">Available Bowlers:</h3>
-                
-                {/* Quick Add Guest Bowler */}
-                <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-medium text-orange-800">Quick Add Guest Bowler</h4>
-                      <p className="text-xs text-orange-600">Add a temporary player for this match</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        const guestName = prompt('Enter guest bowler name:');
-                        if (guestName && guestName.trim()) {
-                          const guestBowler: Player = {
-                            id: `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                            name: guestName.trim(),
-                            isGroupMember: false,
-                            isGuest: true,
-                            stats: {
-                              matchesPlayed: 0,
-                              runsScored: 0,
-                              ballsFaced: 0,
-                              fours: 0,
-                              sixes: 0,
-                              fifties: 0,
-                              hundreds: 0,
-                              highestScore: 0,
-                              timesOut: 0,
-                              wicketsTaken: 0,
-                              ballsBowled: 0,
-                              runsConceded: 0,
-                              catches: 0,
-                              runOuts: 0,
-                              motmAwards: 0,
-                              ducks: 0,
-                              dotBalls: 0,
-                              maidenOvers: 0,
-                              bestBowlingFigures: '0/0'
-                            }
-                          };
-                          
-                          console.log(`🎯 QUICK ADD GUEST BOWLER: ${guestBowler.name}`);
-                          
-                          // Immediately add to bowling team and update UI
-                          const updatedMatch = { ...match };
-                          if (!updatedMatch.bowlingTeam.players.find(p => p.id === guestBowler.id)) {
-                            updatedMatch.bowlingTeam.players.push(guestBowler);
-                          }
-                          setMatch(updatedMatch);
-                          
-                          // Select as current bowler immediately
-                          handleBowlerChange(guestBowler);
-                          
-                          // Save to storage in the background with indicator
-                          setBackgroundSaves(prev => prev + 1);
-                          storageService.savePlayer(guestBowler).then(() => {
-                            setBackgroundSaves(prev => Math.max(0, prev - 1));
-                          }).catch((error) => {
-                            console.error('Background save failed for guest bowler:', error);
-                            setBackgroundSaves(prev => Math.max(0, prev - 1));
-                          });
-                        }
-                      }}
-                      className="bg-orange-500 text-white px-3 py-1 rounded text-sm hover:bg-orange-600 active:bg-orange-700 transition-all duration-200 transform hover:scale-105 active:scale-95 font-medium"
-                    >
-                      + Add Guest
-                    </button>
-                  </div>
-                </div>
-                
-                {/* Group Players Section */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                    <span className="w-3 h-3 bg-purple-500 rounded-full mr-2"></span>
-                    Group Players
-                  </h4>
-                  <div className="space-y-2">
-                    {getAvailableBowlers()
-                      .filter(bowler => bowler.isGroupMember)
-                      .map((bowler) => (
-                        <button
-                          key={bowler.id}
-                          onClick={() => {
-                            console.log(`🎯 GROUP BOWLER SELECTED: ${bowler.name}`);
-                            handleBowlerChange(bowler);
-                          }}
-                          disabled={bowlerSelectionInProgress}
-                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
-                            bowlerSelectionInProgress 
-                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
-                              : 'bg-purple-50 hover:bg-purple-100 active:bg-purple-200 border-purple-200 transform hover:scale-[1.02] active:scale-[0.98]'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-purple-500 rounded-full flex items-center justify-center text-white font-semibold">
-                              {bowler.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1">
-                              <span className="font-medium text-gray-900">{bowler.name}</span>
-                              <div className="text-xs text-gray-500 mt-1">
-                                Matches: {bowler.stats.matchesPlayed} | Wickets: {bowler.stats.wicketsTaken}
-                              </div>
-                            </div>
-                            <div className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
-                              Member
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Guest Players Section */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                    <span className="w-3 h-3 bg-orange-500 rounded-full mr-2"></span>
-                    Guest Players
-                  </h4>
-                  <div className="space-y-2">
-                    {getAvailableBowlers()
-                      .filter(bowler => bowler.isGuest)
-                      .map((bowler) => (
-                        <button
-                          key={bowler.id}
-                          onClick={() => {
-                            console.log(`🎯 GUEST BOWLER SELECTED: ${bowler.name}`);
-                            handleBowlerChange(bowler);
-                          }}
-                          disabled={bowlerSelectionInProgress}
-                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
-                            bowlerSelectionInProgress 
-                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
-                              : 'bg-orange-50 hover:bg-orange-100 active:bg-orange-200 border-orange-200 transform hover:scale-[1.02] active:scale-[0.98]'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center text-white font-semibold">
-                              {bowler.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1">
-                              <span className="font-medium text-gray-900">{bowler.name}</span>
-                              <div className="text-xs text-gray-500 mt-1">
-                                Matches: {bowler.stats.matchesPlayed} | Wickets: {bowler.stats.wicketsTaken}
-                              </div>
-                            </div>
-                            <div className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
-                              Guest
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Other Players Section */}
-                <div className="mb-4">
-                  <h4 className="text-sm font-medium text-gray-700 mb-2 flex items-center">
-                    <span className="w-3 h-3 bg-blue-500 rounded-full mr-2"></span>
-                    Other Players
-                  </h4>
-                  <div className="space-y-2">
-                    {getAvailableBowlers()
-                      .filter(bowler => !bowler.isGroupMember && !bowler.isGuest)
-                      .map((bowler) => (
-                        <button
-                          key={bowler.id}
-                          onClick={() => {
-                            console.log(`🎯 OTHER BOWLER SELECTED: ${bowler.name}`);
-                            handleBowlerChange(bowler);
-                          }}
-                          disabled={bowlerSelectionInProgress}
-                          className={`w-full p-3 rounded-lg border transition-all duration-200 text-left ${
-                            bowlerSelectionInProgress 
-                              ? 'bg-gray-100 border-gray-200 cursor-not-allowed opacity-50' 
-                              : 'bg-blue-50 hover:bg-blue-100 active:bg-blue-200 border-blue-200 transform hover:scale-[1.02] active:scale-[0.98]'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center text-white font-semibold">
-                              {bowler.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div className="flex-1">
-                              <span className="font-medium text-gray-900">{bowler.name}</span>
-                              <div className="text-xs text-gray-500 mt-1">
-                                Matches: {bowler.stats.matchesPlayed} | Wickets: {bowler.stats.wicketsTaken}
-                              </div>
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                  </div>
-                </div>
-                
-                {getAvailableBowlers().length === 0 && (
-                  <div className="text-center py-6 text-gray-500">
-                    <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <User className="w-8 h-8 text-gray-400" />
-                    </div>
-                    <p className="font-medium mb-2">No available bowlers found</p>
-                    <p className="text-sm mb-4">Add more bowlers to continue the match</p>
-                    <button
-                      onClick={() => {
-                        setAddPlayerType('bowling');
-                        setShowAddPlayerModal(true);
-                        setShowBowlerSelector(false);
-                      }}
-                      className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 active:bg-blue-700 transition-all duration-200 transform hover:scale-105 active:scale-95 font-medium shadow-md"
-                    >
-                      Add New Bowler
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
+          players={getAvailableBowlers()}
+          showOnlyAvailable={true}
+          allowAddPlayer={true}
+          groupId={currentGroup?.id}
+          filterByGroup={isGroupMatch} // Filter by group for group matches
+          excludePlayerIds={match.currentBowler ? [match.currentBowler.id] : []}
+        />
       )}
 
       {/* New Batsman Selector Modal */}
