@@ -540,11 +540,9 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         setShowAddPlayerModal(true);
       } else {
         console.log(`✅ Showing bowler selector for over ${nextOver}`);
-        // Force the modal to show with a slight delay to ensure state updates
-        setTimeout(() => {
-          setShowBowlerSelector(true);
-          console.log(`🔍 FORCED BOWLER SELECTOR SHOW - showBowlerSelector: true`);
-        }, 100);
+        // Show the selector immediately
+        setShowBowlerSelector(true);
+        console.log(`🔍 BOWLER SELECTOR ACTIVATED - showBowlerSelector: true`);
       }
     } else if (wasOverComplete && !isInningsComplete) {
       console.log(`⚠️ SKIPPING BOWLER SELECTOR - Already showing: ${showBowlerSelector}, Already needing: ${needsBowlerChange}`);
@@ -1061,7 +1059,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
             handleBowlerChange(player);
           }}
           onClose={() => {
-            console.log('🔧 BOWLER SELECTOR CLOSE ATTEMPTED');
+                    console.log('🔧 BOWLER SELECTOR CLOSE ATTEMPTED');
             // CRITICAL: Don't allow closing without selecting a bowler when it's mandatory
             if (needsBowlerChange) {
               alert('🚫 You MUST select a new bowler to continue!\n\nSame bowler cannot bowl consecutive overs.\n\nThis is a fundamental cricket rule.');
