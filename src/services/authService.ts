@@ -1,6 +1,7 @@
 import { User, Group, GroupMember, Invitation } from '../types/auth';
 import { Player } from '../types/cricket';
 import { storageService } from './storage';
+import { cloudStorageService } from './cloudStorageService';
 import { firebasePhoneAuthService } from './firebasePhoneAuthService';
 import { firebaseAuthService } from './firebaseAuthService';
 import { userCloudSyncService } from './userCloudSyncService';
@@ -19,7 +20,23 @@ class AuthService {
   // CRITICAL: Restore user session from localStorage on app startup
   async restoreUserSession(): Promise<void> {
     try {
-      // Check localStorage for current user
+      // First, try to get user from cloud storage if authenticated
+      try {
+        const cloudProfile = await cloudStorageService.getUserProfile();
+        if (cloudProfile) {
+          this.currentUser = cloudProfile;
+          localStorage.setItem('currentUser', JSON.stringify(cloudProfile));
+          console.log('🔄 User session restored from cloud:', cloudProfile.name);
+          
+          // Load groups from cloud
+          await this.loadUserGroups();
+          return;
+        }
+      } catch (error) {
+        console.log('📱 No cloud user found, checking local storage...');
+      }
+
+      // Fallback to localStorage for backward compatibility
       const storedUser = localStorage.getItem('currentUser');
       const storedGroup = localStorage.getItem('currentGroup');
       
@@ -27,7 +44,15 @@ class AuthService {
         try {
           const user = JSON.parse(storedUser);
           this.currentUser = user;
-          console.log('🔄 User session restored:', user.name);
+          console.log('🔄 User session restored from local storage:', user.name);
+          
+          // Try to migrate to cloud storage if user is authenticated
+          try {
+            await cloudStorageService.saveUserProfile(user);
+            console.log('🔄 User profile migrated to cloud');
+          } catch (error) {
+            console.log('📱 Cloud migration skipped (user not authenticated)');
+          }
           
           // CRITICAL: Initialize cross-device sync immediately when session is restored
           if (user.email || user.phone) {
@@ -169,8 +194,16 @@ class AuthService {
       }
     };
 
+    // Save to both local and cloud storage
     await storageService.saveUserProfile(user);
-    console.log('📱 Comprehensive user profile created with phone:', phone);
+    
+    try {
+      await cloudStorageService.saveUserProfile(user);
+      console.log('📱 Comprehensive user profile created and saved to cloud with phone:', phone);
+    } catch (error) {
+      console.log('📱 User profile saved locally (cloud save failed):', error.message);
+    }
+    
     return user;
   }
 
@@ -802,6 +835,15 @@ class AuthService {
 
     console.log('💾 Saving group with invite code:', inviteCode);
     await storageService.saveGroup(group);
+    
+    // Save to cloud storage
+    try {
+      await cloudStorageService.saveGroup(group);
+      console.log('☁️ Group saved to cloud:', group.name);
+    } catch (error) {
+      console.log('📱 Group saved locally (cloud save failed):', error.message);
+    }
+    
     console.log('✅ Group saved successfully:', group.name);
     
     // Add group to user's group list
@@ -896,6 +938,14 @@ class AuthService {
     });
 
     await storageService.saveGroup(group);
+    
+    // Save to cloud storage
+    try {
+      await cloudStorageService.saveGroup(group);
+      console.log('☁️ Group updated in cloud after user joined');
+    } catch (error) {
+      console.log('📱 Group cloud update skipped');
+    }
     
     // CRITICAL: Create a player profile for the joining user
     const newPlayer = {
@@ -1002,13 +1052,36 @@ class AuthService {
 
   // Multiple Groups Support with enhanced persistence
   async loadUserGroups(): Promise<void> {
-    if (!this.currentUser || !this.currentUser.groupIds) {
+    if (!this.currentUser) {
       this.currentGroups = [];
       this.saveGroupsToStorage();
       return;
     }
 
-    console.log('🔄 Loading user groups:', this.currentUser.groupIds);
+    // Try to load groups from cloud storage first
+    try {
+      const cloudGroups = await cloudStorageService.getUserGroups();
+      this.currentGroups = cloudGroups;
+      console.log('✅ Loaded user groups from cloud:', this.currentGroups.length);
+      
+      // Update user's groupIds for consistency
+      this.currentUser.groupIds = cloudGroups.map(g => g.id);
+      
+      // Save to localStorage for offline access
+      this.saveGroupsToStorage();
+      return;
+    } catch (error) {
+      console.log('📱 Cloud groups load failed, using local storage:', error.message);
+    }
+
+    // Fallback to local storage using groupIds
+    if (!this.currentUser.groupIds) {
+      this.currentGroups = [];
+      this.saveGroupsToStorage();
+      return;
+    }
+
+    console.log('🔄 Loading user groups from local storage:', this.currentUser.groupIds);
 
     const groups: Group[] = [];
     for (const groupId of this.currentUser.groupIds) {
@@ -1016,6 +1089,13 @@ class AuthService {
       if (group) {
         groups.push(group);
         console.log('✅ Loaded group:', group.name);
+        
+        // Try to migrate group to cloud
+        try {
+          await cloudStorageService.saveGroup(group);
+        } catch (error) {
+          console.log('📱 Group cloud migration skipped for:', group.name);
+        }
       } else {
         console.warn('⚠️ Group not found:', groupId);
       }

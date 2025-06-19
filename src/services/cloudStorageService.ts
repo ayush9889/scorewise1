@@ -1,4 +1,4 @@
-import { db } from '../config/firebase';
+import { db, auth } from '../config/firebase';
 import { 
   collection, 
   doc, 
@@ -6,619 +6,525 @@ import {
   getDoc, 
   getDocs, 
   query, 
-  orderBy, 
-  limit,
   where,
-  Timestamp,
+  orderBy,
+  limit,
   serverTimestamp,
   onSnapshot,
-  enableNetwork,
-  disableNetwork
+  writeBatch,
+  deleteDoc,
+  addDoc,
+  updateDoc,
+  Timestamp
 } from 'firebase/firestore';
-import { Match, Player } from '../types/cricket';
+import { User as AuthUser } from 'firebase/auth';
+import { User, Group, Match, Player, Invitation } from '../types/cricket';
 
-const MATCHES_COLLECTION = 'matches';
-const PLAYERS_COLLECTION = 'players';
-const MATCH_STATES_COLLECTION = 'match_states';
+// Firestore Collections
+const COLLECTIONS = {
+  USERS: 'users',
+  GROUPS: 'groups', 
+  MATCHES: 'matches',
+  PLAYERS: 'players',
+  INVITATIONS: 'invitations',
+  USER_PROFILES: 'user_profiles'
+} as const;
 
-// Simple helper to check if we're online
-const isOnline = () => navigator.onLine;
+class CloudStorageService {
+  private currentUser: AuthUser | null = null;
+  private isOnline: boolean = navigator.onLine;
+  private offlineCache = new Map<string, any>();
+  private subscribers = new Map<string, (() => void)[]>();
 
-// Check if Firebase is working properly
-const isFirebaseWorking = () => {
-  try {
-    // For Firebase v9+, we check if db exists and is properly initialized
-    return db && typeof db === 'object' && db._delegate;
-  } catch (error) {
-    console.warn('⚠️ Firebase not working properly:', error);
-    return false;
+  constructor() {
+    // Monitor online status
+    window.addEventListener('online', () => this.setOnlineStatus(true));
+    window.addEventListener('offline', () => this.setOnlineStatus(false));
+    
+    // Listen to auth state changes
+    auth.onAuthStateChanged((user) => {
+      this.currentUser = user;
+      console.log('🔄 Auth state changed:', user?.email || 'No user');
+    });
   }
-};
 
-// Prepare match data for Firestore with complete information
-const prepareMatchForFirestore = (match: Match) => {
-  try {
-    return {
-      // Basic match info
-      id: match.id,
-      totalOvers: match.totalOvers || 20,
-      isCompleted: match.isCompleted || false,
-      isSecondInnings: match.isSecondInnings || false,
-      firstInningsScore: match.firstInningsScore || null,
-      winner: match.winner || null,
-      resultMargin: match.resultMargin || null,
-      startTime: match.startTime ? Timestamp.fromDate(new Date(match.startTime)) : serverTimestamp(),
-      endTime: match.endTime ? Timestamp.fromDate(new Date(match.endTime)) : null,
-      lastUpdated: serverTimestamp(),
-      
-      // Complete team data
-      team1: {
-        name: match.team1?.name || '',
-        score: match.team1?.score || 0,
-        wickets: match.team1?.wickets || 0,
-        overs: match.team1?.overs || 0,
-        balls: match.team1?.balls || 0,
-        extras: match.team1?.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-        fallOfWickets: match.team1?.fallOfWickets || [],
-        players: match.team1?.players?.map(p => ({
-          id: p.id,
-          name: p.name,
-          shortId: p.shortId,
-          photoUrl: p.photoUrl,
-          isGroupMember: p.isGroupMember,
-          isGuest: p.isGuest
-        })) || []
-      },
-      
-      team2: {
-        name: match.team2?.name || '',
-        score: match.team2?.score || 0,
-        wickets: match.team2?.wickets || 0,
-        overs: match.team2?.overs || 0,
-        balls: match.team2?.balls || 0,
-        extras: match.team2?.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-        fallOfWickets: match.team2?.fallOfWickets || [],
-        players: match.team2?.players?.map(p => ({
-          id: p.id,
-          name: p.name,
-          shortId: p.shortId,
-          photoUrl: p.photoUrl,
-          isGroupMember: p.isGroupMember,
-          isGuest: p.isGuest
-        })) || []
-      },
-      
-      // Current match state
-      battingTeam: {
-        name: match.battingTeam?.name || '',
-        score: match.battingTeam?.score || 0,
-        wickets: match.battingTeam?.wickets || 0,
-        overs: match.battingTeam?.overs || 0,
-        balls: match.battingTeam?.balls || 0,
-        extras: match.battingTeam?.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-        fallOfWickets: match.battingTeam?.fallOfWickets || []
-      },
-      
-      bowlingTeam: {
-        name: match.bowlingTeam?.name || '',
-        score: match.bowlingTeam?.score || 0,
-        wickets: match.bowlingTeam?.wickets || 0,
-        overs: match.bowlingTeam?.overs || 0,
-        balls: match.bowlingTeam?.balls || 0,
-        extras: match.bowlingTeam?.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-        fallOfWickets: match.bowlingTeam?.fallOfWickets || []
-      },
-      
-      // Current players
-      currentStriker: match.currentStriker ? {
-        id: match.currentStriker.id,
-        name: match.currentStriker.name,
-        shortId: match.currentStriker.shortId,
-        photoUrl: match.currentStriker.photoUrl,
-        isGroupMember: match.currentStriker.isGroupMember,
-        isGuest: match.currentStriker.isGuest
-      } : null,
-      
-      currentNonStriker: match.currentNonStriker ? {
-        id: match.currentNonStriker.id,
-        name: match.currentNonStriker.name,
-        shortId: match.currentNonStriker.shortId,
-        photoUrl: match.currentNonStriker.photoUrl,
-        isGroupMember: match.currentNonStriker.isGroupMember,
-        isGuest: match.currentNonStriker.isGuest
-      } : null,
-      
-      currentBowler: match.currentBowler ? {
-        id: match.currentBowler.id,
-        name: match.currentBowler.name,
-        shortId: match.currentBowler.shortId,
-        photoUrl: match.currentBowler.photoUrl,
-        isGroupMember: match.currentBowler.isGroupMember,
-        isGuest: match.currentBowler.isGuest
-      } : null,
-      
-      previousBowler: match.previousBowler ? {
-        id: match.previousBowler.id,
-        name: match.previousBowler.name,
-        shortId: match.previousBowler.shortId,
-        photoUrl: match.previousBowler.photoUrl,
-        isGroupMember: match.previousBowler.isGroupMember,
-        isGuest: match.previousBowler.isGuest
-      } : null,
-      
-      manOfTheMatch: match.manOfTheMatch ? {
-        id: match.manOfTheMatch.id,
-        name: match.manOfTheMatch.name,
-        shortId: match.manOfTheMatch.shortId,
-        photoUrl: match.manOfTheMatch.photoUrl,
-        isGroupMember: match.manOfTheMatch.isGroupMember,
-        isGuest: match.manOfTheMatch.isGuest
-      } : null,
-      
-      // Ball by ball data (limited to last 100 balls for performance)
-      balls: (match.balls || []).slice(-100).map(ball => ({
-        id: ball.id,
-        ballNumber: ball.ballNumber,
-        overNumber: ball.overNumber,
-        bowler: {
-          id: ball.bowler.id,
-          name: ball.bowler.name
-        },
-        striker: {
-          id: ball.striker.id,
-          name: ball.striker.name
-        },
-        nonStriker: ball.nonStriker ? {
-          id: ball.nonStriker.id,
-          name: ball.nonStriker.name
-        } : null,
-        runs: ball.runs,
-        isWide: ball.isWide,
-        isNoBall: ball.isNoBall,
-        isBye: ball.isBye,
-        isLegBye: ball.isLegBye,
-        isWicket: ball.isWicket,
-        wicketType: ball.wicketType,
-        fielder: ball.fielder ? {
-          id: ball.fielder.id,
-          name: ball.fielder.name
-        } : null,
-        commentary: ball.commentary,
-        timestamp: ball.timestamp,
-        innings: ball.innings,
-        battingTeamId: ball.battingTeamId
-      })),
-      
-      // Match status
-      tossWinner: match.tossWinner || '',
-      tossDecision: match.tossDecision || 'bat',
-      currentInnings: match.currentInnings || 1,
-      
-      // Backup metadata
-      backupVersion: '1.0',
-      deviceInfo: {
-        userAgent: navigator.userAgent,
-        timestamp: Date.now()
-      }
-    };
-  } catch (error) {
-    console.error('❌ Error preparing match data for Firestore:', error);
-    throw new Error('Failed to prepare match data');
+  private setOnlineStatus(status: boolean) {
+    this.isOnline = status;
+    console.log(`📡 Network status: ${status ? 'Online' : 'Offline'}`);
+    
+    if (status) {
+      this.syncOfflineChanges();
+    }
   }
-};
 
-// Convert Firestore data back to Match object
-const convertFirestoreToMatch = (data: any): Match => {
-  return {
-    id: data.id,
-    team1: {
-      name: data.team1.name,
-      players: data.team1.players || [],
-      score: data.team1.score || 0,
-      wickets: data.team1.wickets || 0,
-      overs: data.team1.overs || 0,
-      balls: data.team1.balls || 0,
-      extras: data.team1.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-      fallOfWickets: data.team1.fallOfWickets || []
-    },
-    team2: {
-      name: data.team2.name,
-      players: data.team2.players || [],
-      score: data.team2.score || 0,
-      wickets: data.team2.wickets || 0,
-      overs: data.team2.overs || 0,
-      balls: data.team2.balls || 0,
-      extras: data.team2.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-      fallOfWickets: data.team2.fallOfWickets || []
-    },
-    battingTeam: {
-      name: data.battingTeam.name,
-      players: data.battingTeam.players || [],
-      score: data.battingTeam.score || 0,
-      wickets: data.battingTeam.wickets || 0,
-      overs: data.battingTeam.overs || 0,
-      balls: data.battingTeam.balls || 0,
-      extras: data.battingTeam.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-      fallOfWickets: data.battingTeam.fallOfWickets || []
-    },
-    bowlingTeam: {
-      name: data.bowlingTeam.name,
-      players: data.bowlingTeam.players || [],
-      score: data.bowlingTeam.score || 0,
-      wickets: data.bowlingTeam.wickets || 0,
-      overs: data.bowlingTeam.overs || 0,
-      balls: data.bowlingTeam.balls || 0,
-      extras: data.bowlingTeam.extras || { wides: 0, noBalls: 0, byes: 0, legByes: 0 },
-      fallOfWickets: data.bowlingTeam.fallOfWickets || []
-    },
-    totalOvers: data.totalOvers || 20,
-    balls: data.balls || [],
-    isCompleted: data.isCompleted || false,
-    isSecondInnings: data.isSecondInnings || false,
-    firstInningsScore: data.firstInningsScore,
-    winner: data.winner,
-    resultMargin: data.resultMargin,
-    startTime: data.startTime?.toDate?.() || new Date(data.startTime),
-    endTime: data.endTime?.toDate?.() || (data.endTime ? new Date(data.endTime) : undefined),
-    currentStriker: data.currentStriker,
-    currentNonStriker: data.currentNonStriker,
-    currentBowler: data.currentBowler,
-    previousBowler: data.previousBowler,
-    manOfTheMatch: data.manOfTheMatch,
-    tossWinner: data.tossWinner || '',
-    tossDecision: data.tossDecision || 'bat',
-    currentInnings: data.currentInnings || 1
-  } as Match;
-};
+  private async syncOfflineChanges() {
+    console.log('🔄 Syncing offline changes...');
+    // Implementation for syncing offline changes when back online
+  }
 
-export const cloudStorageService = {
-  // Save match to cloud storage with complete backup
-  async saveMatch(match: Match): Promise<void> {
-    try {
-      console.log('🔄 Saving match to cloud:', match.id);
-      
-      if (!isOnline() || !isFirebaseWorking()) {
-        console.log('📱 Device offline or Firebase unavailable, skipping cloud save');
-        return;
-      }
-      
-      if (!match.id || !match.team1?.name || !match.team2?.name) {
-        console.warn('⚠️ Match missing required data, skipping cloud save');
-        return;
-      }
-
-      const matchData = prepareMatchForFirestore(match);
-      const matchRef = doc(db, MATCHES_COLLECTION, match.id);
-      
-      await setDoc(matchRef, matchData, { merge: true });
-      
-      // Also save as a separate backup state for resumption
-      const stateRef = doc(db, MATCH_STATES_COLLECTION, match.id);
-      await setDoc(stateRef, {
-        ...matchData,
-        isBackup: true,
-        backupTimestamp: serverTimestamp()
-      }, { merge: true });
-      
-      console.log('✅ Successfully saved match to cloud with backup:', match.id);
-    } catch (error: any) {
-      console.warn('⚠️ Cloud save failed:', error?.message || error);
-      throw error; // Re-throw for retry logic
+  private getCurrentUserId(): string {
+    if (!this.currentUser) {
+      throw new Error('User not authenticated');
     }
-  },
+    return this.currentUser.uid;
+  }
 
-  // Get match from cloud storage with full restoration
-  async getMatch(matchId: string): Promise<Match | null> {
-    try {
-      console.log('🔄 Retrieving match from cloud:', matchId);
-      
-      if (!matchId || !isOnline() || !isFirebaseWorking()) {
-        console.log('📱 Cannot fetch from cloud - offline or invalid ID');
-        return null;
-      }
-
-      const matchRef = doc(db, MATCHES_COLLECTION, matchId);
-      const matchDoc = await getDoc(matchRef);
-      
-      if (matchDoc.exists()) {
-        const data = matchDoc.data();
-        console.log('✅ Successfully retrieved match from cloud:', matchId);
-        return convertFirestoreToMatch(data);
-      }
-      
-      console.log('📭 Match not found in cloud:', matchId);
-      return null;
-    } catch (error: any) {
-      console.warn('⚠️ Cloud retrieval failed:', error?.message || error);
-      return null;
+  private getUserEmail(): string {
+    if (!this.currentUser?.email) {
+      throw new Error('User email not available');
     }
-  },
+    return this.currentUser.email;
+  }
 
-  // Get incomplete matches for resumption
-  async getIncompleteMatches(): Promise<Match[]> {
+  // User Management
+  async saveUserProfile(userData: User): Promise<void> {
     try {
-      console.log('🔄 Searching for incomplete matches');
+      const userId = this.getCurrentUserId();
+      const userRef = doc(db, COLLECTIONS.USER_PROFILES, userId);
       
-      if (!isOnline() || !isFirebaseWorking()) {
-        console.log('📱 Device offline, cannot search for incomplete matches');
-        return [];
+      const profileData = {
+        ...userData,
+        uid: userId,
+        email: this.getUserEmail(),
+        lastUpdated: serverTimestamp(),
+        deviceInfo: {
+          userAgent: navigator.userAgent,
+          lastActiveAt: serverTimestamp()
+        }
+      };
+
+      await setDoc(userRef, profileData, { merge: true });
+      console.log('✅ User profile saved to cloud');
+      
+      // Cache locally for offline access
+      this.offlineCache.set(`user_${userId}`, profileData);
+    } catch (error) {
+      console.error('❌ Failed to save user profile:', error);
+      throw error;
+    }
+  }
+
+  async getUserProfile(): Promise<User | null> {
+    try {
+      const userId = this.getCurrentUserId();
+      const userRef = doc(db, COLLECTIONS.USER_PROFILES, userId);
+      
+      if (!this.isOnline) {
+        const cached = this.offlineCache.get(`user_${userId}`);
+        if (cached) return cached;
+      }
+
+      const userDoc = await getDoc(userRef);
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        this.offlineCache.set(`user_${userId}`, userData);
+        return userData;
       }
       
-      const matchesQuery = query(
-        collection(db, MATCHES_COLLECTION),
-        where('isCompleted', '==', false),
-        orderBy('lastUpdated', 'desc'),
-        limit(10)
-      );
+      return null;
+    } catch (error) {
+      console.error('❌ Failed to get user profile:', error);
+      const cached = this.offlineCache.get(`user_${this.getCurrentUserId()}`);
+      return cached || null;
+    }
+  }
+
+  // Group Management
+  async saveGroup(group: Group): Promise<void> {
+    try {
+      const userId = this.getCurrentUserId();
+      const groupRef = doc(db, COLLECTIONS.GROUPS, group.id);
       
-      const querySnapshot = await getDocs(matchesQuery);
-      const incompleteMatches = querySnapshot.docs.map(doc => {
-        const data = doc.data();
-        return convertFirestoreToMatch(data);
+      const groupData = {
+        ...group,
+        ownerId: userId,
+        ownerEmail: this.getUserEmail(),
+        lastUpdated: serverTimestamp(),
+        members: group.members.map(member => ({
+          ...member,
+          addedAt: member.addedAt || serverTimestamp()
+        }))
+      };
+
+      await setDoc(groupRef, groupData, { merge: true });
+      console.log('✅ Group saved to cloud:', group.name);
+      
+      this.offlineCache.set(`group_${group.id}`, groupData);
+      this.notifySubscribers(`groups_${userId}`);
+    } catch (error) {
+      console.error('❌ Failed to save group:', error);
+      throw error;
+    }
+  }
+
+  async getGroup(groupId: string): Promise<Group | null> {
+    try {
+      const groupRef = doc(db, COLLECTIONS.GROUPS, groupId);
+      
+      if (!this.isOnline) {
+        const cached = this.offlineCache.get(`group_${groupId}`);
+        if (cached) return cached;
+      }
+
+      const groupDoc = await getDoc(groupRef);
+      if (groupDoc.exists()) {
+        const groupData = groupDoc.data() as Group;
+        this.offlineCache.set(`group_${groupId}`, groupData);
+        return groupData;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('❌ Failed to get group:', error);
+      return this.offlineCache.get(`group_${groupId}`) || null;
+    }
+  }
+
+  async getUserGroups(): Promise<Group[]> {
+    try {
+      const userId = this.getCurrentUserId();
+      const userEmail = this.getUserEmail();
+      
+      if (!this.isOnline) {
+        const cached = Array.from(this.offlineCache.values())
+          .filter(item => item.ownerId === userId || 
+            item.members?.some((m: any) => m.userEmail === userEmail));
+        return cached;
+      }
+
+      // Query groups where user is owner or member
+      const [ownedGroups, memberGroups] = await Promise.all([
+        getDocs(query(collection(db, COLLECTIONS.GROUPS), where('ownerId', '==', userId))),
+        getDocs(query(collection(db, COLLECTIONS.GROUPS), where('members', 'array-contains-any', [
+          { userEmail }, { userId }
+        ])))
+      ]);
+
+      const groups: Group[] = [];
+      const seenIds = new Set<string>();
+
+      // Add owned groups
+      ownedGroups.forEach(doc => {
+        if (!seenIds.has(doc.id)) {
+          const group = { id: doc.id, ...doc.data() } as Group;
+          groups.push(group);
+          seenIds.add(doc.id);
+          this.offlineCache.set(`group_${doc.id}`, group);
+        }
       });
-      
-      console.log('✅ Found incomplete matches:', incompleteMatches.length);
-      return incompleteMatches;
-    } catch (error: any) {
-      console.warn('⚠️ Failed to get incomplete matches:', error?.message || error);
-      return [];
-    }
-  },
 
-  // Save player data to cloud
+      // Add member groups
+      memberGroups.forEach(doc => {
+        if (!seenIds.has(doc.id)) {
+          const group = { id: doc.id, ...doc.data() } as Group;
+          groups.push(group);
+          seenIds.add(doc.id);
+          this.offlineCache.set(`group_${doc.id}`, group);
+        }
+      });
+
+      console.log('✅ Loaded user groups from cloud:', groups.length);
+      return groups;
+    } catch (error) {
+      console.error('❌ Failed to get user groups:', error);
+      // Return cached groups as fallback
+      return Array.from(this.offlineCache.values())
+        .filter(item => item.ownerId === this.getCurrentUserId());
+    }
+  }
+
+  // Player Management
   async savePlayer(player: Player): Promise<void> {
     try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        console.log('📱 Device offline, skipping player cloud save');
-        return;
+      const userId = this.getCurrentUserId();
+      const playerRef = doc(db, COLLECTIONS.PLAYERS, player.id);
+      
+      const playerData = {
+        ...player,
+        createdBy: userId,
+        createdByEmail: this.getUserEmail(),
+        lastUpdated: serverTimestamp(),
+        groupIds: player.groupIds || []
+      };
+
+      await setDoc(playerRef, playerData, { merge: true });
+      console.log('✅ Player saved to cloud:', player.name);
+      
+      this.offlineCache.set(`player_${player.id}`, playerData);
+      this.notifySubscribers(`players_${userId}`);
+    } catch (error) {
+      console.error('❌ Failed to save player:', error);
+      throw error;
+    }
+  }
+
+  async getPlayer(playerId: string): Promise<Player | null> {
+    try {
+      const playerRef = doc(db, COLLECTIONS.PLAYERS, playerId);
+      
+      if (!this.isOnline) {
+        const cached = this.offlineCache.get(`player_${playerId}`);
+        if (cached) return cached;
       }
 
-      const playerRef = doc(db, PLAYERS_COLLECTION, player.id);
-      await setDoc(playerRef, {
-        ...player,
-        lastUpdated: serverTimestamp()
-      }, { merge: true });
+      const playerDoc = await getDoc(playerRef);
+      if (playerDoc.exists()) {
+        const playerData = playerDoc.data() as Player;
+        this.offlineCache.set(`player_${playerId}`, playerData);
+        return playerData;
+      }
       
-      console.log('✅ Player saved to cloud:', player.name);
-    } catch (error: any) {
-      console.warn('⚠️ Failed to save player to cloud:', error?.message || error);
+      return null;
+    } catch (error) {
+      console.error('❌ Failed to get player:', error);
+      return this.offlineCache.get(`player_${playerId}`) || null;
     }
-  },
+  }
 
-  // Get all players from cloud
-  async getAllPlayers(): Promise<Player[]> {
+  async getGroupPlayers(groupId: string): Promise<Player[]> {
     try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        console.log('📱 Device offline, cannot fetch players from cloud');
-        return [];
+      if (!this.isOnline) {
+        const cached = Array.from(this.offlineCache.values())
+          .filter(item => item.groupIds?.includes(groupId));
+        return cached;
       }
 
       const playersQuery = query(
-        collection(db, PLAYERS_COLLECTION),
-        orderBy('lastUpdated', 'desc')
+        collection(db, COLLECTIONS.PLAYERS),
+        where('groupIds', 'array-contains', groupId)
       );
-      
-      const querySnapshot = await getDocs(playersQuery);
-      const players = querySnapshot.docs.map(doc => doc.data() as Player);
-      
-      console.log('✅ Retrieved players from cloud:', players.length);
-      return players;
-    } catch (error: any) {
-      console.warn('⚠️ Failed to get players from cloud:', error?.message || error);
-      return [];
-    }
-  },
 
-  // Real-time match synchronization
-  subscribeToMatch(matchId: string, callback: (match: Match | null) => void): () => void {
-    if (!isOnline() || !isFirebaseWorking()) {
-      console.log('📱 Cannot subscribe - offline or Firebase unavailable');
-      return () => {};
-    }
+      const playersSnapshot = await getDocs(playersQuery);
+      const players: Player[] = [];
 
-    try {
-      const matchRef = doc(db, MATCHES_COLLECTION, matchId);
-      
-      const unsubscribe = onSnapshot(matchRef, (doc) => {
-        if (doc.exists()) {
-          const data = doc.data();
-          const match = convertFirestoreToMatch(data);
-          callback(match);
-        } else {
-          callback(null);
-        }
-      }, (error) => {
-        console.warn('⚠️ Match subscription error:', error);
-        callback(null);
+      playersSnapshot.forEach(doc => {
+        const player = { id: doc.id, ...doc.data() } as Player;
+        players.push(player);
+        this.offlineCache.set(`player_${doc.id}`, player);
       });
 
-      console.log('✅ Subscribed to match updates:', matchId);
-      return unsubscribe;
+      console.log('✅ Loaded group players from cloud:', players.length);
+      return players;
     } catch (error) {
-      console.warn('⚠️ Failed to subscribe to match:', error);
-      return () => {};
+      console.error('❌ Failed to get group players:', error);
+      return Array.from(this.offlineCache.values())
+        .filter(item => item.groupIds?.includes(groupId));
     }
-  },
+  }
 
-  // Backup current match state
-  async createBackup(match: Match, backupName?: string): Promise<string> {
+  async removePlayerFromGroup(playerId: string, groupId: string): Promise<void> {
     try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        throw new Error('Cannot create backup - device offline');
+      const player = await this.getPlayer(playerId);
+      if (!player) throw new Error('Player not found');
+
+      const updatedGroupIds = player.groupIds?.filter(id => id !== groupId) || [];
+      
+      if (updatedGroupIds.length === 0) {
+        // Remove player entirely if no groups left
+        await deleteDoc(doc(db, COLLECTIONS.PLAYERS, playerId));
+        this.offlineCache.delete(`player_${playerId}`);
+      } else {
+        // Update player with remaining groups
+        await updateDoc(doc(db, COLLECTIONS.PLAYERS, playerId), {
+          groupIds: updatedGroupIds,
+          lastUpdated: serverTimestamp()
+        });
+        
+        const updatedPlayer = { ...player, groupIds: updatedGroupIds };
+        this.offlineCache.set(`player_${playerId}`, updatedPlayer);
       }
 
-      const backupId = `backup_${match.id}_${Date.now()}`;
-      const backupRef = doc(db, 'match_backups', backupId);
-      
-      const backupData = {
-        ...prepareMatchForFirestore(match),
-        backupId,
-        backupName: backupName || `Backup ${new Date().toLocaleString()}`,
-        originalMatchId: match.id,
-        createdAt: serverTimestamp()
-      };
-      
-      await setDoc(backupRef, backupData);
-      
-      console.log('✅ Backup created:', backupId);
-      return backupId;
-    } catch (error: any) {
-      console.error('❌ Failed to create backup:', error);
+      console.log('✅ Player removed from group');
+      this.notifySubscribers(`players_${this.getCurrentUserId()}`);
+    } catch (error) {
+      console.error('❌ Failed to remove player from group:', error);
       throw error;
     }
-  },
+  }
 
-  // Restore from backup
-  async restoreFromBackup(backupId: string): Promise<Match | null> {
+  // Match Management
+  async saveMatch(match: Match): Promise<void> {
     try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        throw new Error('Cannot restore backup - device offline');
+      const userId = this.getCurrentUserId();
+      const matchRef = doc(db, COLLECTIONS.MATCHES, match.id);
+      
+      const matchData = {
+        ...match,
+        createdBy: userId,
+        createdByEmail: this.getUserEmail(),
+        lastUpdated: serverTimestamp(),
+        isCompleted: match.isCompleted || false
+      };
+
+      await setDoc(matchRef, matchData, { merge: true });
+      console.log('✅ Match saved to cloud:', match.id);
+      
+      this.offlineCache.set(`match_${match.id}`, matchData);
+      this.notifySubscribers(`matches_${userId}`);
+    } catch (error) {
+      console.error('❌ Failed to save match:', error);
+      throw error;
+    }
+  }
+
+  async getMatch(matchId: string): Promise<Match | null> {
+    try {
+      const matchRef = doc(db, COLLECTIONS.MATCHES, matchId);
+      
+      if (!this.isOnline) {
+        const cached = this.offlineCache.get(`match_${matchId}`);
+        if (cached) return cached;
       }
 
-      const backupRef = doc(db, 'match_backups', backupId);
-      const backupDoc = await getDoc(backupRef);
-      
-      if (backupDoc.exists()) {
-        const data = backupDoc.data();
-        const match = convertFirestoreToMatch(data);
-        console.log('✅ Backup restored:', backupId);
-        return match;
+      const matchDoc = await getDoc(matchRef);
+      if (matchDoc.exists()) {
+        const matchData = matchDoc.data() as Match;
+        this.offlineCache.set(`match_${matchId}`, matchData);
+        return matchData;
       }
       
       return null;
-    } catch (error: any) {
-      console.error('❌ Failed to restore backup:', error);
-      throw error;
-    }
-  },
-
-  // Get recent matches with pagination
-  async getRecentMatches(limitCount: number = 10, lastDoc?: any): Promise<{ matches: Match[], lastDoc: any }> {
-    try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        return { matches: [], lastDoc: null };
-      }
-      
-      let matchesQuery = query(
-        collection(db, MATCHES_COLLECTION),
-        orderBy('lastUpdated', 'desc'),
-        limit(limitCount)
-      );
-      
-      if (lastDoc) {
-        matchesQuery = query(matchesQuery, startAfter(lastDoc));
-      }
-      
-      const querySnapshot = await getDocs(matchesQuery);
-      const matches = querySnapshot.docs.map(doc => convertFirestoreToMatch(doc.data()));
-      const newLastDoc = querySnapshot.docs[querySnapshot.docs.length - 1];
-      
-      console.log('✅ Retrieved recent matches:', matches.length);
-      return { matches, lastDoc: newLastDoc };
-    } catch (error: any) {
-      console.warn('⚠️ Failed to get recent matches:', error?.message || error);
-      return { matches: [], lastDoc: null };
-    }
-  },
-
-  // Test Firebase connection
-  async testConnection(): Promise<void> {
-    if (!isOnline()) {
-      throw new Error('Device is offline');
-    }
-    
-    if (!isFirebaseWorking()) {
-      throw new Error('Firebase not initialized properly');
-    }
-    
-    try {
-      // Test connection with a simple read
-      const testRef = doc(db, 'connection_test', 'test');
-      await getDoc(testRef);
-      console.log('✅ Firebase connection test successful');
-    } catch (error: any) {
-      console.error('❌ Firebase connection test failed:', error);
-      throw new Error(`Firebase connection failed: ${error.message}`);
-    }
-  },
-
-  // Check connection and sync status
-  async checkConnection(): Promise<{ online: boolean, firebaseWorking: boolean, lastSync?: Date }> {
-    const online = isOnline();
-    const firebaseWorking = isFirebaseWorking();
-    
-    let lastSync;
-    try {
-      if (online && firebaseWorking) {
-        // Test connection with a simple read
-        await this.testConnection();
-        lastSync = new Date();
-      }
     } catch (error) {
-      console.warn('⚠️ Connection test failed:', error);
+      console.error('❌ Failed to get match:', error);
+      return this.offlineCache.get(`match_${matchId}`) || null;
     }
-    
-    return { online, firebaseWorking, lastSync };
-  },
-
-  // Force offline mode
-  async goOffline(): Promise<void> {
-    try {
-      await disableNetwork(db);
-      console.log('📱 Forced offline mode');
-    } catch (error) {
-      console.warn('⚠️ Failed to go offline:', error);
-    }
-  },
-
-  // Force online mode
-  async goOnline(): Promise<void> {
-    try {
-      await enableNetwork(db);
-      console.log('📱 Forced online mode');
-    } catch (error) {
-      console.warn('⚠️ Failed to go online:', error);
-    }
-  },
-
-  // Sync local data with cloud
-  async syncLocalData(localMatches: Match[], localPlayers: Player[]): Promise<{ synced: number, errors: number }> {
-    let synced = 0;
-    let errors = 0;
-    
-    try {
-      if (!isOnline() || !isFirebaseWorking()) {
-        throw new Error('Cannot sync - device offline');
-      }
-      
-      // Sync matches
-      for (const match of localMatches) {
-        try {
-          await this.saveMatch(match);
-          synced++;
-        } catch (error) {
-          console.warn('⚠️ Failed to sync match:', match.id, error);
-          errors++;
-        }
-      }
-      
-      // Sync players
-      for (const player of localPlayers) {
-        try {
-          await this.savePlayer(player);
-          synced++;
-        } catch (error) {
-          console.warn('⚠️ Failed to sync player:', player.id, error);
-          errors++;
-        }
-      }
-      
-      console.log(`✅ Sync completed: ${synced} items synced, ${errors} errors`);
-    } catch (error) {
-      console.error('❌ Sync failed:', error);
-      errors++;
-    }
-    
-    return { synced, errors };
   }
-};
+
+  async getUserMatches(): Promise<Match[]> {
+    try {
+      const userId = this.getCurrentUserId();
+      
+      if (!this.isOnline) {
+        const cached = Array.from(this.offlineCache.values())
+          .filter(item => item.createdBy === userId);
+        return cached;
+      }
+
+      const matchesQuery = query(
+        collection(db, COLLECTIONS.MATCHES),
+        where('createdBy', '==', userId),
+        orderBy('startTime', 'desc'),
+        limit(100)
+      );
+
+      const matchesSnapshot = await getDocs(matchesQuery);
+      const matches: Match[] = [];
+
+      matchesSnapshot.forEach(doc => {
+        const match = { id: doc.id, ...doc.data() } as Match;
+        matches.push(match);
+        this.offlineCache.set(`match_${doc.id}`, match);
+      });
+
+      console.log('✅ Loaded user matches from cloud:', matches.length);
+      return matches;
+    } catch (error) {
+      console.error('❌ Failed to get user matches:', error);
+      return Array.from(this.offlineCache.values())
+        .filter(item => item.createdBy === this.getCurrentUserId());
+    }
+  }
+
+  async getGroupMatches(groupId: string): Promise<Match[]> {
+    try {
+      if (!this.isOnline) {
+        const cached = Array.from(this.offlineCache.values())
+          .filter(item => item.groupId === groupId);
+        return cached;
+      }
+
+      const matchesQuery = query(
+        collection(db, COLLECTIONS.MATCHES),
+        where('groupId', '==', groupId),
+        orderBy('startTime', 'desc')
+      );
+
+      const matchesSnapshot = await getDocs(matchesQuery);
+      const matches: Match[] = [];
+
+      matchesSnapshot.forEach(doc => {
+        const match = { id: doc.id, ...doc.data() } as Match;
+        matches.push(match);
+        this.offlineCache.set(`match_${doc.id}`, match);
+      });
+
+      console.log('✅ Loaded group matches from cloud:', matches.length);
+      return matches;
+    } catch (error) {
+      console.error('❌ Failed to get group matches:', error);
+      return Array.from(this.offlineCache.values())
+        .filter(item => item.groupId === groupId);
+    }
+  }
+
+  // Real-time subscriptions
+  subscribeToUserGroups(callback: (groups: Group[]) => void): () => void {
+    const userId = this.getCurrentUserId();
+    const subscriptionKey = `groups_${userId}`;
+    
+    if (!this.subscribers.has(subscriptionKey)) {
+      this.subscribers.set(subscriptionKey, []);
+    }
+    this.subscribers.get(subscriptionKey)!.push(callback);
+
+    // Set up Firestore real-time listener
+    const unsubscribe = onSnapshot(
+      query(collection(db, COLLECTIONS.GROUPS), where('ownerId', '==', userId)),
+      (snapshot) => {
+        const groups: Group[] = [];
+        snapshot.forEach(doc => {
+          const group = { id: doc.id, ...doc.data() } as Group;
+          groups.push(group);
+          this.offlineCache.set(`group_${doc.id}`, group);
+        });
+        this.notifySubscribers(subscriptionKey);
+      },
+      (error) => console.error('❌ Groups subscription error:', error)
+    );
+
+    return () => {
+      unsubscribe();
+      const callbacks = this.subscribers.get(subscriptionKey) || [];
+      const index = callbacks.indexOf(callback);
+      if (index > -1) callbacks.splice(index, 1);
+    };
+  }
+
+  private notifySubscribers(key: string) {
+    const callbacks = this.subscribers.get(key) || [];
+    callbacks.forEach(callback => {
+      try {
+        callback();
+      } catch (error) {
+        console.error('❌ Subscription callback error:', error);
+      }
+    });
+  }
+
+  // Utility methods
+  async isOnlineStatus(): Promise<boolean> {
+    return this.isOnline;
+  }
+
+  async clearOfflineCache(): Promise<void> {
+    this.offlineCache.clear();
+    console.log('✅ Offline cache cleared');
+  }
+
+  async getCloudSyncStatus(): Promise<{
+    isOnline: boolean;
+    cacheSize: number;
+    lastSync: Date | null;
+    user: string | null;
+  }> {
+    return {
+      isOnline: this.isOnline,
+      cacheSize: this.offlineCache.size,
+      lastSync: new Date(), // Could track this more precisely
+      user: this.currentUser?.email || null
+    };
+  }
+}
+
+// Export singleton instance
+export const cloudStorageService = new CloudStorageService();

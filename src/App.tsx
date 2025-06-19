@@ -198,6 +198,14 @@ function App() {
         if (sessionUser.email || sessionUser.phone) {
           try {
             console.log('🔄 Initializing cross-device sync for restored user...');
+            
+            // Ensure cloud storage service is aware of the current user
+            try {
+              const cloudStatus = await cloudStorageService.getCloudSyncStatus();
+              console.log('☁️ Cloud storage status:', cloudStatus);
+            } catch (error) {
+              console.log('📱 Cloud storage not available (user not authenticated)');
+            }
             await userCloudSyncService.initializeUserSync(sessionUser);
             console.log('✅ Cross-device sync initialized for restored user');
           } catch (error) {

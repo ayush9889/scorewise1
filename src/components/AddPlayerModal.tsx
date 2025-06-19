@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User, Camera, X, Plus } from 'lucide-react';
 import { Player } from '../types/cricket';
 import { storageService } from '../services/storage';
+import { cloudStorageService } from '../services/cloudStorageService';
 
 interface AddPlayerModalProps {
   isOpen: boolean;
@@ -86,9 +87,16 @@ export const AddPlayerModal: React.FC<AddPlayerModalProps> = ({
       setLoading(false);
       onClose();
       
-      // Save to storage in the background (non-blocking)
-      storageService.savePlayer(player).catch((err) => {
-        console.error('Background save failed for player:', err);
+      // Save to both cloud and local storage in the background (non-blocking)
+      Promise.all([
+        cloudStorageService.savePlayer(player).catch((err) => {
+          console.error('Cloud save failed for player:', err);
+        }),
+        storageService.savePlayer(player).catch((err) => {
+          console.error('Local save failed for player:', err);
+        })
+      ]).catch((err) => {
+        console.error('Player save failed:', err);
         // Player is already added via callback, so this failure won't affect the UI
       });
       

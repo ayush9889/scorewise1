@@ -5,6 +5,7 @@ import { Player } from '../types/cricket';
 import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
 import { AddPlayerModal } from './AddPlayerModal';
+import { cloudStorageService } from '../services/cloudStorageService';
 
 interface GroupManagementProps {
   onBack: () => void;
@@ -52,10 +53,17 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         setGuestLink(authService.generateGuestLink(group.id));
         console.log('👥 Loaded group members:', groupMembers.length);
         
-        // Load group players
-        const groupPlayers = await storageService.getGroupPlayers(group.id);
-        setPlayers(groupPlayers);
-        console.log('🏏 Loaded group players:', groupPlayers.length);
+        // Load group players from cloud first, then fallback to local
+        try {
+          const cloudPlayers = await cloudStorageService.getGroupPlayers(group.id);
+          setPlayers(cloudPlayers);
+          console.log('🏏 Loaded group players from cloud:', cloudPlayers.length);
+        } catch (error) {
+          console.log('📱 Loading players from local storage');
+          const groupPlayers = await storageService.getGroupPlayers(group.id);
+          setPlayers(groupPlayers);
+          console.log('🏏 Loaded group players from local storage:', groupPlayers.length);
+        }
       }
     } catch (error) {
       console.error('Failed to load group data:', error);
@@ -442,10 +450,17 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
 
   const handlePlayerAdded = async (player: Player) => {
     console.log('🏏 Player added:', player.name);
-    // Refresh players list
+    // Refresh players list from cloud first, then fallback to local
     if (currentGroup) {
-      const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
-      setPlayers(groupPlayers);
+      try {
+        const cloudPlayers = await cloudStorageService.getGroupPlayers(currentGroup.id);
+        setPlayers(cloudPlayers);
+        console.log('✅ Players loaded from cloud:', cloudPlayers.length);
+      } catch (error) {
+        console.log('📱 Loading players from local storage');
+        const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
+        setPlayers(groupPlayers);
+      }
     }
   };
 
@@ -456,12 +471,25 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
     if (!confirmed) return;
 
     try {
+      // Remove from cloud first, then local
+      try {
+        await cloudStorageService.removePlayerFromGroup(playerId, currentGroup.id);
+        console.log('☁️ Player removed from cloud:', playerName);
+      } catch (error) {
+        console.log('📱 Cloud removal failed, removing locally');
+      }
+      
       await storageService.removePlayerFromGroup(playerId, currentGroup.id);
       console.log('🗑️ Player removed:', playerName);
       
-      // Refresh players list
-      const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
-      setPlayers(groupPlayers);
+      // Refresh players list from cloud first, then local
+      try {
+        const cloudPlayers = await cloudStorageService.getGroupPlayers(currentGroup.id);
+        setPlayers(cloudPlayers);
+      } catch (error) {
+        const groupPlayers = await storageService.getGroupPlayers(currentGroup.id);
+        setPlayers(groupPlayers);
+      }
     } catch (error) {
       console.error('Failed to remove player:', error);
     }

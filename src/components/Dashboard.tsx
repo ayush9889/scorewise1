@@ -12,6 +12,7 @@ import { LiveScorer } from './LiveScorer';
 import { authService } from '../services/authService';
 import { GroupSelector } from './GroupSelector';
 import { CloudSyncStatus } from './CloudSyncStatus';
+import { CloudMigrationStatus } from './CloudMigrationStatus';
 
 interface DashboardProps {
   onBack: () => void;
@@ -42,6 +43,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
   const [syncing, setSyncing] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(authService.getCurrentUser());
+  const [showCloudMigration, setShowCloudMigration] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -849,6 +851,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
           />
         )}
 
+        {/* Cloud Migration Status */}
+        {!currentUser?.isGuest && currentUser && (
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4 mb-6 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <Cloud className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h3 className="font-semibold text-gray-900">Cloud Storage</h3>
+                  <p className="text-sm text-gray-600">Access your data from any device</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCloudMigration(true)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+              >
+                Manage Cloud Data
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Recent Matches */}
         <div className="bg-white rounded-xl shadow-sm p-6 mb-8">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Recent Group Matches</h2>
@@ -977,6 +1000,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
           match={currentMatch}
           isOpen={showDetailedScorecard}
           onClose={() => setShowDetailedScorecard(false)}
+        />
+      )}
+
+      {showCloudMigration && (
+        <CloudMigrationStatus
+          onClose={() => setShowCloudMigration(false)}
         />
       )}
     </>
