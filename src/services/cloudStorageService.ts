@@ -524,6 +524,90 @@ class CloudStorageService {
       user: this.currentUser?.email || null
     };
   }
+
+  // Connection testing
+  async checkConnection(): Promise<{
+    online: boolean;
+    firebaseWorking: boolean;
+    lastSync?: Date;
+  }> {
+    try {
+      // Test basic internet connectivity
+      const online = navigator.onLine;
+      
+      if (!online) {
+        return {
+          online: false,
+          firebaseWorking: false,
+          lastSync: undefined
+        };
+      }
+
+      // Test Firebase connectivity by trying to read a document
+      let firebaseWorking = false;
+      try {
+        if (this.currentUser) {
+          const userRef = doc(db, COLLECTIONS.USER_PROFILES, this.currentUser.uid);
+          await getDoc(userRef);
+          firebaseWorking = true;
+        } else {
+          // Test without authentication by trying to read from a public collection
+          const testQuery = query(collection(db, COLLECTIONS.GROUPS), limit(1));
+          await getDocs(testQuery);
+          firebaseWorking = true;
+        }
+      } catch (error) {
+        console.warn('Firebase connectivity test failed:', error);
+        firebaseWorking = false;
+      }
+
+      return {
+        online,
+        firebaseWorking,
+        lastSync: firebaseWorking ? new Date() : undefined
+      };
+    } catch (error) {
+      console.error('Connection check failed:', error);
+      return {
+        online: false,
+        firebaseWorking: false,
+        lastSync: undefined
+      };
+    }
+  }
+
+  // Enhanced persistence methods
+  async ensureDataPersistence(): Promise<void> {
+    try {
+      console.log('🔄 Ensuring data persistence...');
+      
+      // Save current cache to localStorage as backup
+      const cacheData = Object.fromEntries(this.offlineCache);
+      localStorage.setItem('cloudStorageCache', JSON.stringify(cacheData));
+      
+      // If online, sync all cached data to cloud
+      if (this.isOnline && this.currentUser) {
+        await this.syncOfflineChanges();
+      }
+      
+      console.log('✅ Data persistence ensured');
+    } catch (error) {
+      console.error('❌ Failed to ensure data persistence:', error);
+    }
+  }
+
+  async restoreFromLocalBackup(): Promise<void> {
+    try {
+      const cachedData = localStorage.getItem('cloudStorageCache');
+      if (cachedData) {
+        const parsedData = JSON.parse(cachedData);
+        this.offlineCache = new Map(Object.entries(parsedData));
+        console.log('✅ Restored data from local backup:', this.offlineCache.size, 'items');
+      }
+    } catch (error) {
+      console.error('❌ Failed to restore from local backup:', error);
+    }
+  }
 }
 
 // Export singleton instance

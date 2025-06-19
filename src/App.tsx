@@ -181,7 +181,15 @@ function App() {
         if (restored) {
           console.log('✅ Data restored from backup');
         } else {
-          console.log('ℹ️ No backup available, starting fresh');
+          console.log('ℹ️ No backup available, trying cloud backup...');
+          
+          // Try to restore from cloud storage backup
+          try {
+            await cloudStorageService.restoreFromLocalBackup();
+            console.log('✅ Data restored from cloud backup');
+          } catch (error) {
+            console.log('ℹ️ No cloud backup available, starting fresh');
+          }
         }
       }
       
@@ -252,6 +260,14 @@ function App() {
         }, 2000); // Give app time to fully initialize first
       }
       
+      // FINAL: Ensure cloud data persistence for bulletproof storage
+      try {
+        await cloudStorageService.ensureDataPersistence();
+        console.log('✅ Cloud data persistence ensured');
+      } catch (error) {
+        console.warn('⚠️ Cloud persistence setup failed:', error);
+      }
+
       console.log('🎉 App initialization completed successfully');
       
     } catch (error) {
