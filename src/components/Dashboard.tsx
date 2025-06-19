@@ -363,6 +363,109 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
     }
   };
 
+  const handleCrossDeviceTest = async () => {
+    if (!currentUser) return;
+    
+    try {
+      console.log('🧪 Running cross-device sync test...');
+      
+      // Create a test group with unique identifier
+      const testGroupName = `Test Group ${Date.now()}`;
+      const testGroup = {
+        id: `test_${Date.now()}`,
+        name: testGroupName,
+        description: 'Cross-device sync test group',
+        members: [{
+          userId: currentUser.id,
+          name: currentUser.name,
+          email: currentUser.email,
+          role: 'admin',
+          joinedAt: new Date().toISOString()
+        }],
+        inviteCode: `TEST${Math.floor(Math.random() * 10000)}`,
+        createdBy: currentUser.id,
+        createdAt: new Date().toISOString(),
+        lastUpdated: Date.now()
+      };
+      
+      // Save to local storage
+      const { storageService } = await import('../services/storage');
+      await storageService.saveGroup(testGroup);
+      console.log('✅ Test group saved locally:', testGroupName);
+      
+      // Force sync to cloud
+      const { userCloudSyncService } = await import('../services/userCloudSyncService');
+      await userCloudSyncService.syncUserDataToCloud(true);
+      console.log('✅ Test group synced to cloud');
+      
+      alert(`✅ Cross-device test completed!\n\nTest group created: "${testGroupName}"\nInvite code: ${testGroup.inviteCode}\n\nNow check another device - this group should appear there when you login with the same account!`);
+      
+      // Refresh the page to show new data
+      window.location.reload();
+      
+    } catch (error) {
+      console.error('❌ Cross-device test failed:', error);
+      alert('❌ Test failed: ' + error.message);
+    }
+  };
+
+  const handleShowDebugInfo = async () => {
+    if (!currentUser) return;
+    
+    try {
+      console.log('🔍 Gathering debug information...');
+      
+      const { storageService } = await import('../services/storage');
+      const { userCloudSyncService } = await import('../services/userCloudSyncService');
+      
+      // Get local data counts
+      const localGroups = await storageService.getAllGroups();
+      const localMatches = await storageService.getAllMatches();
+      const localPlayers = await storageService.getAllPlayers();
+      
+      // Get sync status
+      const syncStatus = await userCloudSyncService.getSyncStatus();
+      
+      const debugInfo = {
+        user: {
+          id: currentUser.id,
+          email: currentUser.email,
+          name: currentUser.name
+        },
+        localData: {
+          groups: localGroups.length,
+          matches: localMatches.length,
+          players: localPlayers.length
+        },
+        cloudData: syncStatus.cloudDataCount,
+        lastSync: syncStatus.lastSyncTime?.toLocaleString() || 'Never',
+        isOnline: syncStatus.isOnline,
+        groupNames: localGroups.map(g => g.name)
+      };
+      
+      console.log('📊 Debug Info:', debugInfo);
+      
+      alert(`📊 Debug Information:\n\n` +
+        `👤 User: ${currentUser.name} (${currentUser.email})\n\n` +
+        `💾 Local Data:\n` +
+        `  • Groups: ${debugInfo.localData.groups}\n` +
+        `  • Matches: ${debugInfo.localData.matches}\n` +
+        `  • Players: ${debugInfo.localData.players}\n\n` +
+        `☁️ Cloud Data:\n` +
+        `  • Groups: ${debugInfo.cloudData.groups}\n` +
+        `  • Matches: ${debugInfo.cloudData.matches}\n` +
+        `  • Players: ${debugInfo.cloudData.players}\n\n` +
+        `🔄 Last Sync: ${debugInfo.lastSync}\n` +
+        `🌐 Online: ${debugInfo.isOnline ? 'Yes' : 'No'}\n\n` +
+        `📝 Groups: ${debugInfo.groupNames.join(', ') || 'None'}`
+      );
+      
+    } catch (error) {
+      console.error('❌ Debug info failed:', error);
+      alert('❌ Debug failed: ' + error.message);
+    }
+  };
+
   const renderError = () => (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="bg-white rounded-xl shadow-sm p-8 max-w-md w-full text-center">
@@ -851,6 +954,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
         {connectionStatus.lastSync && (
           <div className="mt-6 text-center text-sm text-gray-500">
             Last synced: {connectionStatus.lastSync.toLocaleString()}
+          </div>
+        )}
+
+        {currentUser && (
+          <div className="mb-8">
+            <CloudSyncStatus />
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={handleManualSync}
+                className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              >
+                Force Sync Now
+              </button>
+              <button
+                onClick={handleCrossDeviceTest}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                🧪 Test Cross-Device Sync
+              </button>
+              <button
+                onClick={handleShowDebugInfo}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                📊 Show Debug Info
+              </button>
+            </div>
           </div>
         )}
       </div>

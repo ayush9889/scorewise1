@@ -114,6 +114,10 @@ function App() {
       console.log('🚀 Initializing ScoreWise app...');
       
       // FAST TRACK: Check for existing user session first
+      // Initialize storage FIRST before any database operations
+      await storageService.init();
+      console.log('✅ Storage initialized');
+
       const storedUser = localStorage.getItem('currentUser');
       if (storedUser) {
         try {
@@ -148,10 +152,6 @@ function App() {
           localStorage.removeItem('currentUser');
         }
       }
-      
-      // Initialize storage first
-      await storageService.init();
-      console.log('✅ Storage initialized');
       
       // Check data integrity and attempt recovery if needed
       const integrity = await storageService.checkDataIntegrity();
