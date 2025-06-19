@@ -21,6 +21,9 @@ import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, 
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
 import './services/inviteCodeDebugger'; // Debug utilities - Updated with comprehensive search functions - Updated with new functions
 
+// Force load LinkJoinService debugging functions
+console.log('🔧 LinkJoinService loaded for debugging');
+
 type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete' | 'multi-group-dashboard';
 
 function App() {
@@ -40,6 +43,7 @@ function App() {
   }>({ online: navigator.onLine, firebaseWorking: false });
   const [isStandaloneMode, setIsStandaloneMode] = useState(false);
   const [activeMatch, setActiveMatch] = useState<Match | null>(null);
+  const [isInitializing, setIsInitializing] = useState(false);
 
   useEffect(() => {
     initializeApp();
@@ -118,7 +122,71 @@ function App() {
 
   const initializeApp = async () => {
     try {
+      setIsInitializing(true);
+      
       console.log('🚀 Initializing ScoreWise app...');
+      
+      // Add emergency debugging functions to window for troubleshooting
+      (window as any).debugJoinIssues = async () => {
+        console.log('🔧 === EMERGENCY JOIN DEBUG ===');
+        
+        const allGroups = await storageService.getAllGroups();
+        console.log('📊 Total groups in storage:', allGroups.length);
+        
+        allGroups.forEach((group, index) => {
+          console.log(`Group ${index + 1}:`, {
+            id: group.id,
+            name: group.name,
+            inviteCode: group.inviteCode,
+            members: group.members.length,
+            createdBy: group.createdBy
+          });
+        });
+        
+        const currentUser = authService.getCurrentUser();
+        console.log('👤 Current user:', currentUser?.name, 'ID:', currentUser?.id);
+        
+        if (allGroups.length > 0) {
+          console.log('🧪 Testing join with first group...');
+          const firstGroup = allGroups[0];
+          try {
+            const joinLink = LinkJoinService.generateJoinLink(firstGroup);
+            console.log('✅ Generated join link:', joinLink);
+            
+            const url = new URL(joinLink);
+            const token = url.searchParams.get('join');
+            if (token) {
+              const parsed = LinkJoinService.parseJoinToken(token);
+              console.log('✅ Parsed token:', parsed);
+            }
+          } catch (error) {
+            console.error('❌ Link generation/parsing failed:', error);
+          }
+        }
+      };
+      
+      (window as any).emergencyGroupRecovery = async () => {
+        console.log('🚨 === EMERGENCY GROUP RECOVERY ===');
+        
+        // Check localStorage for backup groups
+        Object.keys(localStorage).forEach(key => {
+          if (key.startsWith('group_backup_')) {
+            try {
+              const groupData = JSON.parse(localStorage.getItem(key) || '{}');
+              console.log('🔄 Found backup group:', groupData.name, 'Code:', groupData.inviteCode);
+              
+              // Restore the group
+              storageService.saveGroup(groupData).then(() => {
+                console.log('✅ Restored group:', groupData.name);
+              }).catch(error => {
+                console.error('❌ Failed to restore group:', error);
+              });
+            } catch (error) {
+              console.warn('⚠️ Invalid backup data in:', key);
+            }
+          }
+        });
+      };
       
       // CRITICAL: Clean up storage quota issues FIRST to prevent QuotaExceededError
       try {
@@ -501,6 +569,8 @@ function App() {
       }
     }
   };
+
+
 
   if (!isInitialized) {
     return (

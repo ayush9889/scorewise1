@@ -1175,8 +1175,11 @@ class AuthService {
 
     console.log('✅ Group found! Adding user as member and player...');
 
+    // CRITICAL FIX: Create a deep copy of the group to avoid reference issues
+    const updatedGroup = JSON.parse(JSON.stringify(group));
+
     // Add user as member
-    group.members.push({
+    updatedGroup.members.push({
       userId: this.currentUser.id,
       role: 'member',
       joinedAt: Date.now(),
@@ -1189,33 +1192,22 @@ class AuthService {
       }
     });
 
-    // CRITICAL: Save updated group to all storage layers with enhanced error handling
-    const saveResults = await Promise.allSettled([
-      storageService.saveGroup(group),
-      cloudStorageService.saveGroup(group),
-      Promise.resolve(localStorage.setItem(`group_backup_${group.id}`, JSON.stringify(group)))
-    ]);
-    
-    const [localResult, cloudResult] = saveResults;
-    
-    if (localResult.status === 'fulfilled') {
+    // CRITICAL FIX: Save ONLY to local storage first, then try cloud as backup
+    try {
+      console.log('💾 Saving updated group to local storage...');
+      await storageService.saveGroup(updatedGroup);
       console.log('✅ Updated group saved locally after user joined');
-      // Ensure proper indexing by waiting and then verifying
-      await new Promise(resolve => setTimeout(resolve, 100));
-      const verifyGroup = await storageService.getGroupByInviteCode(group.inviteCode);
-      if (!verifyGroup) {
-        console.warn('⚠️ Group save verification failed, attempting fix...');
-        await storageService.saveGroup(group);
-      }
-    } else {
-      console.error('❌ Failed to save updated group locally:', localResult.reason);
+      
+      // Try cloud save as backup (non-blocking)
+      cloudStorageService.saveGroup(updatedGroup).then(() => {
+        console.log('☁️ Group updated in cloud after user joined');
+      }).catch(error => {
+        console.log('📱 Group cloud update failed (saved locally):', error);
+      });
+      
+    } catch (localError) {
+      console.error('❌ Failed to save updated group locally:', localError);
       throw new Error('Failed to save group after joining');
-    }
-    
-    if (cloudResult.status === 'fulfilled') {
-      console.log('☁️ Group updated in cloud after user joined');
-    } else {
-      console.log('📱 Group cloud update failed (saved locally):', cloudResult.reason);
     }
     
     // CRITICAL: Create a player profile for the joining user
@@ -1226,7 +1218,7 @@ class AuthService {
       photoUrl: this.currentUser.photoUrl,
       isGroupMember: true,
       isGuest: false,
-      groupIds: [group.id],
+      groupIds: [updatedGroup.id],
       stats: {
         matchesPlayed: 0,
         runsScored: 0,
@@ -1257,17 +1249,17 @@ class AuthService {
     if (!this.currentUser.groupIds) {
       this.currentUser.groupIds = [];
     }
-    this.currentUser.groupIds.push(group.id);
+    this.currentUser.groupIds.push(updatedGroup.id);
     await storageService.saveUser(this.currentUser);
     
     // CRITICAL: Update localStorage immediately
     localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
     
-    this.currentGroups.push(group);
+    this.currentGroups.push(updatedGroup);
     this.saveGroupsToStorage();
     
-    console.log('✅ User successfully joined group and became a player:', group.name);
-    return group;
+    console.log('✅ User successfully joined group and became a player:', updatedGroup.name);
+    return updatedGroup;
   }
 
   async inviteToGroup(groupId: string, email?: string, phone?: string): Promise<Invitation> {
