@@ -1111,30 +1111,58 @@ class AuthService {
     const cleanInviteCode = inviteCode.trim().toUpperCase();
     console.log('🤝 Attempting to join group with code:', cleanInviteCode);
     
-    // ENHANCED: First, let's check what groups exist
+    // ENHANCED: First, let's check what groups exist for debugging
     try {
       const allGroups = await storageService.getAllGroups();
       console.log('🔍 Total groups in database:', allGroups.length);
       
-      allGroups.forEach((g, index) => {
-        console.log(`Group ${index + 1}: "${g.name}" - Code: "${g.inviteCode}" ${g.inviteCode === cleanInviteCode ? '✅ MATCH!' : '❌ no match'}`);
-      });
+      if (allGroups.length === 0) {
+        console.warn('⚠️ No groups found in database - this might be the issue');
+      } else {
+        console.log('🔍 Available groups and their invite codes:');
+        allGroups.forEach((g, index) => {
+          console.log(`Group ${index + 1}: "${g.name}" - Code: "${g.inviteCode}" ${g.inviteCode === cleanInviteCode ? '✅ MATCH!' : '❌ no match'}`);
+        });
+      }
     } catch (debugError) {
       console.warn('⚠️ Could not retrieve groups for debugging:', debugError);
     }
     
-    const group = await storageService.getGroupByInviteCode(cleanInviteCode);
+    // Try to find the group
+    let group = await storageService.getGroupByInviteCode(cleanInviteCode);
+    
+    // If not found, try recovery mechanisms
+    if (!group) {
+      console.log('🔧 Group not found locally, attempting recovery...');
+      
+      // Try cloud storage
+      try {
+        const cloudGroups = await cloudStorageService.getUserGroups();
+        group = cloudGroups.find(g => g.inviteCode === cleanInviteCode);
+        if (group) {
+          console.log('✅ Found group in cloud storage, saving locally...');
+          await storageService.saveGroup(group);
+          // Wait a moment for indexing
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      } catch (cloudError) {
+        console.warn('⚠️ Cloud recovery failed:', cloudError);
+      }
+    }
+    
     if (!group) {
       // Enhanced error with more helpful information
       const errorMessage = `Invalid invite code "${cleanInviteCode}". 
-      
+
 🔍 Troubleshooting:
 • Make sure the code is exactly 6 characters
 • Check that you copied the complete code
 • Verify the group still exists (admin didn't delete it)
 • Try refreshing the page and joining again
 
-💡 Debug: Open browser console (F12) and type: debugInviteCode("${cleanInviteCode}") for detailed analysis.`;
+💡 Debug: Open browser console (F12) and type: debugInviteCode("${cleanInviteCode}") for detailed analysis.
+
+🛠️ Advanced: Try running fixGroupIndexes() if groups exist but cannot be found.`;
       
       throw new Error(errorMessage);
     }
@@ -1161,7 +1189,7 @@ class AuthService {
       }
     });
 
-    // CRITICAL: Save updated group to all storage layers
+    // CRITICAL: Save updated group to all storage layers with enhanced error handling
     const saveResults = await Promise.allSettled([
       storageService.saveGroup(group),
       cloudStorageService.saveGroup(group),
@@ -1172,6 +1200,13 @@ class AuthService {
     
     if (localResult.status === 'fulfilled') {
       console.log('✅ Updated group saved locally after user joined');
+      // Ensure proper indexing by waiting and then verifying
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const verifyGroup = await storageService.getGroupByInviteCode(group.inviteCode);
+      if (!verifyGroup) {
+        console.warn('⚠️ Group save verification failed, attempting fix...');
+        await storageService.saveGroup(group);
+      }
     } else {
       console.error('❌ Failed to save updated group locally:', localResult.reason);
       throw new Error('Failed to save group after joining');

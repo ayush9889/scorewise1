@@ -122,7 +122,25 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       console.log('🎉 Group join complete, staying on group management page');
     } catch (err) {
       console.error('❌ Failed to join group:', err);
-      setError(err instanceof Error ? err.message : 'Failed to join group');
+      
+      // Enhanced error handling with helpful suggestions
+      let errorMessage = err instanceof Error ? err.message : 'Failed to join group';
+      
+      // If it's an invite code issue, add helpful troubleshooting info
+      if (errorMessage.includes('Invalid invite code')) {
+        errorMessage = `${errorMessage}
+
+🔧 Quick Fixes to Try:
+1. Copy the invite code again (ensure all 6 characters)
+2. Refresh this page and try again
+3. Ask the group admin to share the code again
+
+💡 Advanced Troubleshooting:
+• Open browser console (F12) and run: troubleshootInviteCode("${inviteCode.trim().toUpperCase()}")
+• This will automatically diagnose and attempt to fix the issue`;
+      }
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

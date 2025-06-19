@@ -437,32 +437,63 @@ class StorageService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['groups'], 'readonly');
       const store = transaction.objectStore('groups');
-      const index = store.index('inviteCode');
-      const request = index.get(cleanInviteCode);
+      
+      // First try index-based search
+      console.log('📊 Storage: Attempting index-based search...');
+      try {
+        const index = store.index('inviteCode');
+        const request = index.get(cleanInviteCode);
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        const result = request.result;
-        console.log('📊 Storage: Found group:', result ? result.name : 'None');
+        request.onerror = () => {
+          console.warn('📊 Storage: Index search failed, falling back to manual search');
+          this.performManualSearch(store, cleanInviteCode, resolve);
+        };
         
-        // If not found using index, try manual search as fallback
-        if (!result) {
-          console.log('📊 Storage: Index search failed, trying manual search...');
-          const getAllRequest = store.getAll();
-          getAllRequest.onsuccess = () => {
-            const allGroups = getAllRequest.result;
-            const foundGroup = allGroups.find(group => 
-              group.inviteCode && group.inviteCode.trim().toUpperCase() === cleanInviteCode
-            );
-            console.log('📊 Storage: Manual search result:', foundGroup ? foundGroup.name : 'None');
-            resolve(foundGroup || null);
-          };
-          getAllRequest.onerror = () => reject(getAllRequest.error);
-        } else {
-          resolve(result);
-        }
-      };
+        request.onsuccess = () => {
+          const result = request.result;
+          if (result) {
+            console.log('✅ Storage: Found group via index:', result.name);
+            resolve(result);
+          } else {
+            console.log('📊 Storage: Index search returned null, trying manual search...');
+            this.performManualSearch(store, cleanInviteCode, resolve);
+          }
+        };
+      } catch (indexError) {
+        console.warn('📊 Storage: Index not available, using manual search only:', indexError);
+        this.performManualSearch(store, cleanInviteCode, resolve);
+      }
     });
+  }
+
+  private performManualSearch(store: IDBObjectStore, cleanInviteCode: string, resolve: (value: Group | null) => void): void {
+    const getAllRequest = store.getAll();
+    getAllRequest.onsuccess = () => {
+      const allGroups = getAllRequest.result;
+      console.log(`📊 Storage: Manual search through ${allGroups.length} groups...`);
+      
+      // Debug: Log all invite codes for comparison
+      const allCodes = allGroups.map(g => g.inviteCode).filter(Boolean);
+      console.log('📊 Storage: Available invite codes:', allCodes);
+      
+      const foundGroup = allGroups.find(group => 
+        group.inviteCode && group.inviteCode.trim().toUpperCase() === cleanInviteCode
+      );
+      
+      if (foundGroup) {
+        console.log('✅ Storage: Found group via manual search:', foundGroup.name);
+      } else {
+        console.log('❌ Storage: Group not found in manual search');
+        console.log('🔍 Storage: Searched for:', cleanInviteCode);
+        console.log('🔍 Storage: Available codes:', allCodes);
+      }
+      
+      resolve(foundGroup || null);
+    };
+    getAllRequest.onerror = () => {
+      console.error('❌ Storage: Manual search failed');
+      resolve(null);
+    };
   }
 
   // Invitation methods
