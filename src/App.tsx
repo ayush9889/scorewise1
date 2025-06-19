@@ -16,13 +16,10 @@ import { authService } from './services/authService';
 import { userCloudSyncService } from './services/userCloudSyncService';
 import { StorageCleanup } from './services/storageCleanup';
 import { PDFService } from './services/pdfService';
-import LinkJoinService from './services/linkJoinService';
+import { SimpleGroupShare } from './services/simpleGroupShare';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
-import './services/inviteCodeDebugger'; // Debug utilities - Updated with comprehensive search functions - Updated with new functions
-
-// Force load LinkJoinService debugging functions
-console.log('🔧 LinkJoinService loaded for debugging');
+import './services/inviteCodeDebugger'; // Debug utilities
 
 type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete' | 'multi-group-dashboard';
 
@@ -128,41 +125,8 @@ function App() {
       
       // Add emergency debugging functions to window for troubleshooting
       (window as any).debugJoinIssues = async () => {
-        console.log('🔧 === EMERGENCY JOIN DEBUG ===');
-        
-        const allGroups = await storageService.getAllGroups();
-        console.log('📊 Total groups in storage:', allGroups.length);
-        
-        allGroups.forEach((group, index) => {
-          console.log(`Group ${index + 1}:`, {
-            id: group.id,
-            name: group.name,
-            inviteCode: group.inviteCode,
-            members: group.members.length,
-            createdBy: group.createdBy
-          });
-        });
-        
-        const currentUser = authService.getCurrentUser();
-        console.log('👤 Current user:', currentUser?.name, 'ID:', currentUser?.id);
-        
-        if (allGroups.length > 0) {
-          console.log('🧪 Testing join with first group...');
-          const firstGroup = allGroups[0];
-          try {
-            const joinLink = LinkJoinService.generateJoinLink(firstGroup);
-            console.log('✅ Generated join link:', joinLink);
-            
-            const url = new URL(joinLink);
-            const token = url.searchParams.get('join');
-            if (token) {
-              const parsed = LinkJoinService.parseJoinToken(token);
-              console.log('✅ Parsed token:', parsed);
-            }
-          } catch (error) {
-            console.error('❌ Link generation/parsing failed:', error);
-          }
-        }
+        console.log('🔧 === SIMPLE JOIN DEBUG ===');
+        await SimpleGroupShare.debugGroups();
       };
       
       (window as any).emergencyGroupRecovery = async () => {
@@ -570,28 +534,23 @@ function App() {
   };
 
   const checkForJoinLink = async () => {
-    const joinToken = LinkJoinService.checkForJoinTokenInURL();
+    const joinCode = SimpleGroupShare.checkURLForJoinCode();
     
-    if (joinToken) {
-      console.log('🔗 Join link detected in URL');
-      
-      // Clear the URL parameter for better UX
-      const url = new URL(window.location.href);
-      url.searchParams.delete('join');
-      window.history.replaceState({}, '', url.toString());
+    if (joinCode) {
+      console.log('🔗 Join link detected in URL with code:', joinCode);
       
       try {
         // If user is not logged in, show auth modal first
         if (!currentUser) {
           console.log('👤 User not logged in, showing auth modal first');
           setShowAuthModal(true);
-          // Store the join token for after authentication
-          localStorage.setItem('pendingJoinToken', joinToken);
+          // Store the join code for after authentication
+          localStorage.setItem('pendingJoinCode', joinCode);
           return;
         }
         
         // Try to join the group
-        const group = await LinkJoinService.joinGroupByLink(joinToken);
+        const group = await SimpleGroupShare.joinGroupByCode(joinCode);
         console.log('✅ Successfully joined group via link:', group.name);
         
         // Show success message
@@ -609,14 +568,14 @@ function App() {
   };
 
   const handlePendingJoinAfterAuth = async () => {
-    const pendingJoinToken = localStorage.getItem('pendingJoinToken');
+    const pendingJoinCode = localStorage.getItem('pendingJoinCode');
     
-    if (pendingJoinToken) {
-      localStorage.removeItem('pendingJoinToken');
-      console.log('🔗 Processing pending join link after authentication');
+    if (pendingJoinCode) {
+      localStorage.removeItem('pendingJoinCode');
+      console.log('🔗 Processing pending join code after authentication:', pendingJoinCode);
       
       try {
-        const group = await LinkJoinService.joinGroupByLink(pendingJoinToken);
+        const group = await SimpleGroupShare.joinGroupByCode(pendingJoinCode);
         console.log('✅ Successfully joined group after auth:', group.name);
         
         alert(`🎉 Welcome to "${group.name}"!\n\nYou've successfully joined the group and can now participate in matches.`);

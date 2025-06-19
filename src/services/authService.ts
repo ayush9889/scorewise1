@@ -1109,7 +1109,7 @@ class AuthService {
 
     // Clean and normalize invite code
     const cleanInviteCode = inviteCode.trim().toUpperCase();
-    console.log('🤝 Attempting to join group with code:', cleanInviteCode);
+    console.log('🤝 [AuthService] Attempting to join group with code:', cleanInviteCode);
     
     // ENHANCED: First, let's check what groups exist for debugging
     try {

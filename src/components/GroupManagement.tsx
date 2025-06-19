@@ -6,7 +6,7 @@ import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
 import { AddPlayerModal } from './AddPlayerModal';
 import { cloudStorageService } from '../services/cloudStorageService';
-import GroupShareModal from './GroupShareModal';
+import { SimpleGroupShareModal } from './SimpleGroupShareModal';
 
 interface GroupManagementProps {
   onBack: () => void;
@@ -1549,9 +1549,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
 
       {/* Group Share Modal */}
       {showShareModal && currentGroup && (
-        <GroupShareModal
+        <SimpleGroupShareModal
           group={currentGroup}
-          isOpen={showShareModal}
           onClose={() => setShowShareModal(false)}
         />
       )}

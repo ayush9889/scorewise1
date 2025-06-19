@@ -5,7 +5,8 @@ import { Player, Match } from '../types/cricket';
 import { authService } from '../services/authService';
 import { storageService } from '../services/storage';
 import { GroupSelector } from './GroupSelector';
-import GroupShareModal from './GroupShareModal';
+import { SimpleGroupShareModal } from './SimpleGroupShareModal';
+import { SimpleGroupShare } from '../services/simpleGroupShare';
 
 interface MultiGroupDashboardProps {
   onNavigate: (destination: string) => void;
@@ -140,7 +141,7 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
 
     try {
       console.log('🤝 Attempting to join group with code:', inviteCode.trim().toUpperCase());
-      const group = await authService.joinGroup(inviteCode.trim());
+      const group = await SimpleGroupShare.joinGroupByCode(inviteCode.trim());
       await loadDashboardData(); // Refresh data
       setShowJoinModal(false);
       setInviteCode('');
@@ -567,9 +568,8 @@ export const MultiGroupDashboard: React.FC<MultiGroupDashboardProps> = ({
 
       {/* Group Share Modal */}
       {showShareModal && currentGroup && (
-        <GroupShareModal
+        <SimpleGroupShareModal
           group={currentGroup}
-          isOpen={showShareModal}
           onClose={() => setShowShareModal(false)}
         />
       )}
