@@ -20,6 +20,86 @@ import {
 import { User as AuthUser } from 'firebase/auth';
 import { User, Group, Match, Player, Invitation } from '../types/cricket';
 
+// Quota error handling utilities for CloudStorageService
+const clearFirebaseCache = (): void => {
+  try {
+    console.log('🧹 CloudStorage: Clearing Firebase cache due to quota error...');
+    const keysToRemove: string[] = [];
+    
+    // Find all Firebase-related keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.includes('firestore') ||
+        key.includes('firebase') ||
+        key.includes('mutation') ||
+        key.includes('pending') ||
+        key.includes('_5643_') ||
+        key.includes('_4255_') ||
+        key.includes('_1026_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    
+    // Remove all Firebase cache keys
+    keysToRemove.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+        console.log(`🗑️ CloudStorage: Removed Firebase cache key: ${key.substring(0, 50)}...`);
+      } catch (error) {
+        console.warn(`⚠️ CloudStorage: Failed to remove key ${key}:`, error);
+      }
+    });
+    
+    console.log(`✅ CloudStorage: Cleared ${keysToRemove.length} Firebase cache entries`);
+  } catch (error) {
+    console.error('❌ CloudStorage: Failed to clear Firebase cache:', error);
+  }
+};
+
+const handleQuotaExceededError = async (error: any, operation: string): Promise<void> => {
+  console.error(`🚨 CloudStorage: Quota exceeded during ${operation}:`, error);
+  
+  // Clear Firebase cache
+  clearFirebaseCache();
+  
+  // Also clear any old backup data to free up space
+  try {
+    localStorage.removeItem('cricket_scorer_backup');
+    localStorage.removeItem('cricket_scorer_backup_history');
+  } catch (cleanupError) {
+    console.warn('⚠️ CloudStorage: Failed to clear backup data:', cleanupError);
+  }
+  
+  // Show user-friendly message
+  const message = `Storage quota exceeded during ${operation}. Firebase cache has been cleared. Please refresh the page and try again.`;
+  console.warn('⚠️ CloudStorage:', message);
+  
+  // Dispatch event for UI handling
+  window.dispatchEvent(new CustomEvent('quotaExceeded', {
+    detail: { operation, message, cleared: true, service: 'CloudStorage' }
+  }));
+};
+
+const withQuotaErrorHandling = async <T>(
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error: any) {
+    if (error?.message?.includes('QuotaExceededError') || 
+        error?.message?.includes('exceeded the quota') ||
+        error?.code === 'quota-exceeded' ||
+        error?.toString()?.includes('FIRESTORE') && error?.toString()?.includes('QuotaExceededError')) {
+      await handleQuotaExceededError(error, operationName);
+      throw new Error(`Storage quota exceeded during ${operationName}. Please refresh the page and try again.`);
+    }
+    throw error;
+  }
+};
+
 // Firestore Collections
 const COLLECTIONS = {
   USERS: 'users',
@@ -78,7 +158,7 @@ class CloudStorageService {
 
   // User Management
   async saveUserProfile(userData: User): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
       const userId = this.getCurrentUserId();
       const userRef = doc(db, COLLECTIONS.USER_PROFILES, userId);
       
@@ -98,10 +178,7 @@ class CloudStorageService {
       
       // Cache locally for offline access
       this.offlineCache.set(`user_${userId}`, profileData);
-    } catch (error) {
-      console.error('❌ Failed to save user profile:', error);
-      throw error;
-    }
+    }, 'saveUserProfile');
   }
 
   async getUserProfile(): Promise<User | null> {
@@ -131,7 +208,12 @@ class CloudStorageService {
 
   // Group Management
   async saveGroup(group: Group): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
+      // Proactively clear Firebase cache before large operations
+      if (Math.random() < 0.1) { // 10% chance to proactively clear cache
+        clearFirebaseCache();
+      }
+      
       const userId = this.getCurrentUserId();
       const groupRef = doc(db, COLLECTIONS.GROUPS, group.id);
       
@@ -151,10 +233,7 @@ class CloudStorageService {
       
       this.offlineCache.set(`group_${group.id}`, groupData);
       this.notifySubscribers(`groups_${userId}`);
-    } catch (error) {
-      console.error('❌ Failed to save group:', error);
-      throw error;
-    }
+    }, 'saveGroup');
   }
 
   async getGroup(groupId: string): Promise<Group | null> {
@@ -235,7 +314,7 @@ class CloudStorageService {
 
   // Player Management
   async savePlayer(player: Player): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
       const userId = this.getCurrentUserId();
       const playerRef = doc(db, COLLECTIONS.PLAYERS, player.id);
       
@@ -252,10 +331,7 @@ class CloudStorageService {
       
       this.offlineCache.set(`player_${player.id}`, playerData);
       this.notifySubscribers(`players_${userId}`);
-    } catch (error) {
-      console.error('❌ Failed to save player:', error);
-      throw error;
-    }
+    }, 'savePlayer');
   }
 
   async getPlayer(playerId: string): Promise<Player | null> {
@@ -313,7 +389,7 @@ class CloudStorageService {
   }
 
   async removePlayerFromGroup(playerId: string, groupId: string): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
       const player = await this.getPlayer(playerId);
       if (!player) throw new Error('Player not found');
 
@@ -336,15 +412,12 @@ class CloudStorageService {
 
       console.log('✅ Player removed from group');
       this.notifySubscribers(`players_${this.getCurrentUserId()}`);
-    } catch (error) {
-      console.error('❌ Failed to remove player from group:', error);
-      throw error;
-    }
+    }, 'removePlayerFromGroup');
   }
 
   // Match Management
   async saveMatch(match: Match): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
       const userId = this.getCurrentUserId();
       const matchRef = doc(db, COLLECTIONS.MATCHES, match.id);
       
@@ -361,10 +434,7 @@ class CloudStorageService {
       
       this.offlineCache.set(`match_${match.id}`, matchData);
       this.notifySubscribers(`matches_${userId}`);
-    } catch (error) {
-      console.error('❌ Failed to save match:', error);
-      throw error;
-    }
+    }, 'saveMatch');
   }
 
   async getMatch(matchId: string): Promise<Match | null> {

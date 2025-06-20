@@ -71,7 +71,25 @@ const usage = {
 }
 ```
 
-### 3. User Cloud Sync Service Overhaul
+### 3. Cloud Storage Service Fixes
+
+**File**: `src/services/cloudStorageService.ts`
+
+**Major Improvements**:
+- **Quota Error Handling Wrapper**: `withQuotaErrorHandling()` for all Firebase operations
+- **Proactive Cache Clearing**: 10% chance during normal operations
+- **Enhanced Error Detection**: Specific Firebase error pattern matching
+- **Service-Specific Logging**: CloudStorage prefixed error messages
+- **UI Event Integration**: Quota exceeded events with service identification
+
+**Methods Enhanced**:
+- `saveGroup()` - Group creation/update with quota protection
+- `savePlayer()` - Player save operations with cache management
+- `saveMatch()` - Match persistence with error recovery
+- `saveUserProfile()` - User profile updates with quota handling
+- `removePlayerFromGroup()` - Player removal with safe operations
+
+### 4. User Cloud Sync Service Overhaul
 
 **File**: `src/services/userCloudSyncService.ts`
 
@@ -107,7 +125,7 @@ const withQuotaErrorHandling = async <T>(
 - `performFullSync()` - Cache clearing before sync
 - `manualSync()` - Specific quota error messaging
 
-### 4. Storage Service Mobile Optimizations
+### 5. Storage Service Mobile Optimizations
 
 **File**: `src/services/storage.ts`
 
@@ -117,7 +135,7 @@ const withQuotaErrorHandling = async <T>(
 - Mobile-specific timeout handling
 - Enhanced backup system with quota awareness
 
-### 5. Global Error Handling
+### 6. Global Error Handling
 
 **Cross-Service Features**:
 - **Global Event Dispatching**: `quotaExceeded` events for UI handling
@@ -140,8 +158,9 @@ const withQuotaErrorHandling = async <T>(
    firebase*
    mutation*
    pending*
-   _4255_* (specific mutation IDs)
-   _1026_* (specific mutation IDs)
+       _4255_* (specific mutation IDs)
+    _5643_* (specific mutation IDs) 
+    _1026_* (specific mutation IDs)
    ```
 
 3. **Chunking Strategy**:
@@ -289,4 +308,68 @@ mobileRecovery()       // Nuclear option - clears ALL data
 | `mobileDebug()` | Run diagnostics only | None | ~10 seconds |
 | `testMobileCommands()` | List available commands | None | Instant |
 
-**✅ All quota exceeded errors should now be automatically handled with graceful recovery and user guidance.** 
+### 7. Enhanced Sync Service Quota Protection
+
+**File**: `src/services/enhancedSyncService.ts`
+
+**Major Addition**: Complete quota error handling integration
+
+**New Quota Handler Class**:
+```typescript
+class EnhancedSyncQuotaHandler {
+  static clearFirebaseCache(): void         // Remove Firebase cache
+  static isQuotaExceededError(error: any)   // Detect quota errors
+  static async handleQuotaError(): Promise<void>  // Handle & recover
+}
+```
+
+**Key Features**:
+- **Specific Mutation Detection**: Detects _5643_, _4255_, _1026_ mutation IDs from errors
+- **Automatic Retry Logic**: After cache clearing, operations retry once automatically
+- **Entity-Specific Handling**: USER, GROUP, PLAYER, MATCH operations all quota-protected
+- **Enhanced Error Messages**: Clear guidance with service identification
+- **Progressive Recovery**: Cache → Retry → User guidance sequence
+
+**Methods Enhanced**:
+- `executeSyncOperation()` - All sync operations now quota-aware
+- Enhanced Sync User Profile Operations
+- Enhanced Sync Group Save/Delete Operations  
+- Enhanced Sync Player Save/Delete Operations
+- Enhanced Sync Match Save/Delete Operations
+- Enhanced Sync Download Operations
+
+**Implementation Highlights**:
+```typescript
+// Quota detection in enhanced sync
+if (EnhancedSyncQuotaHandler.isQuotaExceededError(error)) {
+  await EnhancedSyncQuotaHandler.handleQuotaError(`${entity} ${type}`, error);
+  
+  // Automatic retry after cache clearing
+  try {
+    // Retry the failed operation once
+    await retryOperation();
+    console.log('✅ Enhanced Sync: Operation succeeded after quota cleanup');
+  } catch (retryError) {
+    throw new Error('Enhanced Sync quota error: Operation failed even after recovery');
+  }
+}
+```
+
+**Error Coverage**: Now handles quota errors from:
+- ✅ Direct CloudStorageService operations
+- ✅ Enhanced Sync Service operations (NEW)
+- ✅ User Cloud Sync Service operations
+- ✅ Migration/batch operations
+- ✅ Real-time sync operations (via Enhanced Sync)
+
+## Complete Error Handling Chain
+
+```
+User Action → Enhanced Sync → CloudStorage → Firebase
+     ↓              ↓              ↓           ↓
+  Retry         Cache Clear    Quota Error   Storage Full
+     ↓              ↓              ↓           ↓
+Auto Recovery → User Guidance → Page Refresh → Success
+```
+
+**✅ Complete quota exceeded error handling now implemented across ALL sync services with automatic recovery and user guidance.** 

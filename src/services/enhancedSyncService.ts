@@ -6,6 +6,88 @@ import { auth } from '../config/firebase';
 import { User, Group } from '../types/auth';
 import { Player, Match } from '../types/cricket';
 
+// Enhanced Sync Quota Error Handling Utilities
+class EnhancedSyncQuotaHandler {
+  static clearFirebaseCache(): void {
+    console.log('🧹 Enhanced Sync: Clearing Firebase cache to resolve quota issues...');
+    
+    let clearedKeys = 0;
+    const keysToRemove: string[] = [];
+    
+    // Find all Firebase-related keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.includes('firebase') || 
+        key.includes('firestore') ||
+        key.includes('mutation') ||
+        key.includes('pending') ||
+        key.includes('_5643_') ||  // Specific mutation ID from error
+        key.includes('_4255_') ||
+        key.includes('_1026_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    
+    // Remove all Firebase cache keys
+    keysToRemove.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+        clearedKeys++;
+      } catch (error) {
+        console.warn('⚠️ Enhanced Sync: Failed to remove cache key:', key);
+      }
+    });
+    
+    console.log(`✅ Enhanced Sync: Cleared ${clearedKeys} Firebase cache entries`);
+  }
+
+  static isQuotaExceededError(error: any): boolean {
+    if (!error) return false;
+    
+    const errorString = error.toString().toLowerCase();
+    const errorMessage = error.message?.toLowerCase() || '';
+    
+    return (
+      errorString.includes('quotaexceedederror') ||
+      errorString.includes('quota') ||
+      errorString.includes('storage full') ||
+      errorMessage.includes('quotaexceedederror') ||
+      errorMessage.includes('exceeded the quota') ||
+      errorMessage.includes('setitem') ||
+      (error.code && error.code.includes('quota')) ||
+      (error.name && error.name.includes('QuotaExceededError'))
+    );
+  }
+
+  static async handleQuotaError(operation: string, error: any): Promise<void> {
+    console.error(`❌ Enhanced Sync: Quota exceeded during ${operation}`);
+    console.error('Full error:', error);
+    
+    // Clear Firebase cache immediately
+    this.clearFirebaseCache();
+    
+    // Show user-friendly guidance
+    console.log(`
+🚨 Enhanced Sync Quota Error Recovery
+─────────────────────────────────────
+Operation: ${operation}
+Status: Firebase storage quota exceeded
+Action: Automatically cleared Firebase cache
+Next: Please retry the operation
+
+If the problem persists:
+1. Clear browser storage manually
+2. Refresh the page
+3. Try the operation again
+    `);
+    
+    // Wait a moment for cache clearing to complete
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+}
+
 interface SyncStatus {
   isEnabled: boolean;
   isOnline: boolean;
@@ -435,8 +517,55 @@ class EnhancedSyncService {
           throw new Error(`Unknown entity type: ${entity}`);
       }
     } catch (error) {
-      // Add more context to the error
-      throw new Error(`Sync operation failed for ${entity} ${type}: ${error.message}`);
+      // Check for quota exceeded errors and handle them specifically
+      if (EnhancedSyncQuotaHandler.isQuotaExceededError(error)) {
+        console.log('🚨 Enhanced Sync: Quota exceeded error detected');
+        await EnhancedSyncQuotaHandler.handleQuotaError(`${entity} ${type}`, error);
+        
+        // After clearing cache, retry the operation once
+        try {
+          console.log('🔄 Enhanced Sync: Retrying operation after quota cleanup...');
+          
+          switch (entity) {
+            case 'USER':
+              if (type === 'UPDATE') {
+                await cloudStorageService.saveUserProfile(data);
+              }
+              break;
+            case 'GROUP':
+              if (type === 'UPDATE') {
+                await cloudStorageService.saveGroup(data);
+              } else if (type === 'DELETE') {
+                await cloudStorageService.deleteGroup(data.id);
+              }
+              break;
+            case 'PLAYER':
+              if (type === 'UPDATE') {
+                await cloudStorageService.savePlayer(data);
+              } else if (type === 'DELETE') {
+                await cloudStorageService.deletePlayer(data.id);
+              }
+              break;
+            case 'MATCH':
+              if (type === 'UPDATE') {
+                await cloudStorageService.saveMatch(data);
+              } else if (type === 'DELETE') {
+                await cloudStorageService.deleteMatch(data.id);
+              }
+              break;
+          }
+          
+          console.log('✅ Enhanced Sync: Operation succeeded after quota cleanup');
+          return; // Success after retry
+          
+        } catch (retryError) {
+          console.error('❌ Enhanced Sync: Operation failed even after quota cleanup:', retryError);
+          throw new Error(`Enhanced Sync quota error: ${entity} ${type} failed. Cache cleared but operation still failed. Please refresh the page and try again.`);
+        }
+      }
+      
+      // Add more context to non-quota errors
+      throw new Error(`Enhanced Sync operation failed for ${entity} ${type}: ${error.message}`);
     }
   }
 
