@@ -20,6 +20,7 @@ import { SimpleGroupShare } from './services/simpleGroupShare';
 import { Trophy, BarChart3, Play, Award, Users, UserPlus, LogIn, LogOut, Crown, Sparkles, Target, Zap, Shield, Share2, MessageCircle, Cloud, CloudOff, RefreshCw, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { MultiGroupDashboard } from './components/MultiGroupDashboard';
 import './services/inviteCodeDebugger'; // Debug utilities
+import { MobileDebugService } from './services/mobileDebugService'; // Mobile diagnostics
 
 type AppState = 'home' | 'auth' | 'group-management' | 'admin-dashboard' | 'user-profile' | 'match-setup' | 'standalone-setup' | 'live-scoring' | 'dashboard' | 'match-complete' | 'multi-group-dashboard';
 
@@ -143,6 +144,11 @@ function App() {
       
       (window as any).SimpleGroupShare = SimpleGroupShare;
       
+      // Mobile-specific debug functions
+      (window as any).mobileDebug = MobileDebugService.runMobileDiagnostics;
+      (window as any).mobileFix = MobileDebugService.quickMobileFix;
+      (window as any).mobileRecovery = MobileDebugService.emergencyMobileRecovery;
+      
       (window as any).emergencyGroupRecovery = async () => {
         console.log('🚨 === EMERGENCY GROUP RECOVERY ===');
         
@@ -239,6 +245,17 @@ function App() {
         }
       } catch (cleanupError) {
         console.warn('⚠️ Storage cleanup failed, but continuing:', cleanupError);
+      }
+      
+      // MOBILE CHECK: Run diagnostics on mobile devices
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      if (isMobile) {
+        console.log('📱 Mobile device detected - running diagnostics...');
+        try {
+          await MobileDebugService.runMobileDiagnostics();
+        } catch (error) {
+          console.warn('⚠️ Mobile diagnostics failed:', error);
+        }
       }
       
       // FAST TRACK: Check for existing user session first

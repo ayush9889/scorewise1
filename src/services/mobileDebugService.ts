@@ -1,0 +1,246 @@
+// Mobile Debug Service for diagnosing mobile-specific issues
+import { storageService } from './storage';
+import { authService } from './authService';
+import { cloudStorageService } from './cloudStorageService';
+
+export class MobileDebugService {
+  static async runMobileDiagnostics(): Promise<void> {
+    console.log('🔧 === MOBILE DIAGNOSTICS STARTING ===');
+    
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    console.log('📱 Device type:', isMobile ? 'Mobile' : 'Desktop');
+    console.log('🌐 User agent:', navigator.userAgent);
+    console.log('📶 Online status:', navigator.onLine);
+    
+    // Check storage quota
+    try {
+      if ('storage' in navigator && 'estimate' in navigator.storage) {
+        const estimate = await navigator.storage.estimate();
+        const usageInMB = ((estimate.usage || 0) / 1024 / 1024).toFixed(2);
+        const quotaInMB = ((estimate.quota || 0) / 1024 / 1024).toFixed(2);
+        const usagePercent = estimate.quota ? ((estimate.usage || 0) / estimate.quota * 100).toFixed(1) : 'Unknown';
+        
+        console.log('💾 Storage usage:', `${usageInMB}MB / ${quotaInMB}MB (${usagePercent}%)`);
+        
+        if (parseFloat(usagePercent) > 80) {
+          console.warn('⚠️ Storage quota is high - this may cause mobile issues');
+        }
+      } else {
+        console.log('💾 Storage API not available');
+      }
+    } catch (error) {
+      console.error('❌ Storage quota check failed:', error);
+    }
+    
+    // Check IndexedDB availability
+    try {
+      if ('indexedDB' in window) {
+        console.log('✅ IndexedDB is available');
+        
+        // Test IndexedDB connection
+        const testDbName = 'mobile_test_db';
+        const testRequest = indexedDB.open(testDbName, 1);
+        
+        testRequest.onsuccess = () => {
+          console.log('✅ IndexedDB connection test successful');
+          testRequest.result.close();
+          indexedDB.deleteDatabase(testDbName);
+        };
+        
+        testRequest.onerror = () => {
+          console.error('❌ IndexedDB connection test failed:', testRequest.error);
+        };
+        
+        testRequest.onupgradeneeded = (event) => {
+          const db = (event.target as IDBOpenDBRequest).result;
+          db.createObjectStore('test', { keyPath: 'id' });
+        };
+      } else {
+        console.error('❌ IndexedDB not available');
+      }
+    } catch (error) {
+      console.error('❌ IndexedDB test failed:', error);
+    }
+    
+    // Check localStorage availability and space
+    try {
+      const testKey = 'mobile_test_storage';
+      localStorage.setItem(testKey, 'test');
+      localStorage.removeItem(testKey);
+      console.log('✅ localStorage is working');
+      
+      // Check localStorage usage
+      let localStorageSize = 0;
+      for (let key in localStorage) {
+        if (localStorage.hasOwnProperty(key)) {
+          localStorageSize += localStorage[key].length + key.length;
+        }
+      }
+      const localStorageMB = (localStorageSize / 1024 / 1024).toFixed(2);
+      console.log('💾 localStorage usage:', `${localStorageMB}MB`);
+      
+    } catch (error) {
+      console.error('❌ localStorage test failed:', error);
+    }
+    
+    // Test storage service initialization
+    try {
+      console.log('🔄 Testing storage service initialization...');
+      const startTime = Date.now();
+      
+      await storageService.init();
+      
+      const initTime = Date.now() - startTime;
+      console.log(`✅ Storage service initialized in ${initTime}ms`);
+      
+      if (initTime > 5000) {
+        console.warn('⚠️ Storage initialization is slow - this may cause mobile timeouts');
+      }
+    } catch (error) {
+      console.error('❌ Storage service initialization failed:', error);
+    }
+    
+    // Test basic data operations
+    try {
+      console.log('🔄 Testing basic data operations...');
+      
+      const testGroups = await storageService.getAllGroups();
+      const testPlayers = await storageService.getAllPlayers();
+      const testMatches = await storageService.getAllMatches();
+      
+      console.log('📊 Data counts:', {
+        groups: testGroups.length,
+        players: testPlayers.length,
+        matches: testMatches.length
+      });
+      
+    } catch (error) {
+      console.error('❌ Data operations failed:', error);
+    }
+    
+    // Check current user and group state
+    try {
+      const currentUser = authService.getCurrentUser();
+      const currentGroup = authService.getCurrentGroup();
+      const userGroups = authService.getUserGroups();
+      
+      console.log('👤 Auth state:', {
+        hasUser: !!currentUser,
+        userName: currentUser?.name,
+        hasGroup: !!currentGroup,
+        groupName: currentGroup?.name,
+        totalGroups: userGroups.length
+      });
+      
+    } catch (error) {
+      console.error('❌ Auth state check failed:', error);
+    }
+    
+    // Test cloud connectivity
+    try {
+      console.log('🔄 Testing cloud connectivity...');
+      const cloudStatus = await cloudStorageService.checkConnection();
+      console.log('☁️ Cloud status:', cloudStatus);
+    } catch (error) {
+      console.error('❌ Cloud connectivity test failed:', error);
+    }
+    
+    console.log('🔧 === MOBILE DIAGNOSTICS COMPLETED ===');
+  }
+  
+  static async quickMobileFix(): Promise<void> {
+    console.log('🛠️ === QUICK MOBILE FIX STARTING ===');
+    
+    try {
+      // Clear problematic localStorage entries
+      const keysToRemove = Object.keys(localStorage).filter(key => 
+        key.includes('temp_') || 
+        key.includes('_cache') || 
+        key.includes('debug_')
+      );
+      
+      keysToRemove.forEach(key => {
+        localStorage.removeItem(key);
+        console.log('🗑️ Removed localStorage key:', key);
+      });
+      
+      // Force storage reinitialization
+      console.log('🔄 Forcing storage reinitialization...');
+      await storageService.init();
+      
+      // Create a minimal test group for mobile
+      const currentUser = authService.getCurrentUser();
+      if (currentUser && authService.getUserGroups().length === 0) {
+        console.log('🆘 Creating emergency group for mobile user...');
+        
+        const emergencyGroup = {
+          id: `mobile_group_${Date.now()}`,
+          name: 'My Mobile Group',
+          description: 'Emergency group created for mobile access',
+          members: [{
+            userId: currentUser.id,
+            name: currentUser.name,
+            email: currentUser.email,
+            role: 'admin' as const,
+            joinedAt: new Date().toISOString()
+          }],
+          inviteCode: `MOB${Math.floor(Math.random() * 10000)}`,
+          createdBy: currentUser.id,
+          createdAt: new Date().toISOString(),
+          lastUpdated: Date.now()
+        };
+        
+        await storageService.saveGroup(emergencyGroup);
+        authService.setCurrentGroup(emergencyGroup);
+        
+        console.log('✅ Emergency group created:', emergencyGroup.name, 'Code:', emergencyGroup.inviteCode);
+      }
+      
+      console.log('✅ Quick mobile fix completed - please refresh the page');
+      
+    } catch (error) {
+      console.error('❌ Quick mobile fix failed:', error);
+    }
+  }
+  
+  static async emergencyMobileRecovery(): Promise<void> {
+    console.log('🚨 === EMERGENCY MOBILE RECOVERY ===');
+    
+    try {
+      // Clear all cached data
+      localStorage.clear();
+      sessionStorage.clear();
+      
+      // Clear IndexedDB
+      if ('indexedDB' in window) {
+        const databases = await indexedDB.databases();
+        for (const db of databases) {
+          if (db.name) {
+            indexedDB.deleteDatabase(db.name);
+            console.log('🗑️ Deleted database:', db.name);
+          }
+        }
+      }
+      
+      // Reinitialize storage
+      await storageService.init();
+      
+      console.log('🆘 Emergency recovery completed - all data cleared');
+      console.log('⚠️ You will need to sign in again and rejoin groups');
+      
+      // Reload the page
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+      
+    } catch (error) {
+      console.error('❌ Emergency recovery failed:', error);
+      console.log('🆘 Manual recovery needed - please clear browser data and refresh');
+    }
+  }
+}
+
+// Add mobile diagnostics to window for easy access
+(window as any).mobileDebug = MobileDebugService.runMobileDiagnostics;
+(window as any).mobileFix = MobileDebugService.quickMobileFix;
+(window as any).mobileRecovery = MobileDebugService.emergencyMobileRecovery; 

@@ -40,7 +40,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
     online: boolean;
     firebaseWorking: boolean;
     lastSync?: Date;
-  }>({ online: false, firebaseWorking: false });
+  }>({ online: navigator.onLine, firebaseWorking: false });
   const [syncing, setSyncing] = useState(false);
   const [currentGroup, setCurrentGroup] = useState<any>(null);
   const [currentUser, setCurrentUser] = useState<any>(authService.getCurrentUser());
@@ -48,9 +48,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
   const [showDeleteMatchModal, setShowDeleteMatchModal] = useState(false);
   const [matchToDelete, setMatchToDelete] = useState<Match | null>(null);
 
+  // Mobile detection
+  const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  const [loadingTimeout, setLoadingTimeout] = useState<NodeJS.Timeout | null>(null);
+
   const loadData = useCallback(async () => {
     try {
       setError(null);
+      setLoading(true);
       
       // Get current group
       const group = authService.getCurrentGroup();
@@ -65,13 +70,48 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
         return;
       }
       
-      console.log('📊 Loading dashboard data for group:', group.name);
+      console.log(`📊 Loading dashboard data for group: ${group.name}${isMobile ? ' (mobile)' : ''}`);
       
-      // Load from local storage first
-      const [storedMatches, storedPlayers] = await Promise.all([
-        storageService.getAllMatches(),
-        storageService.getAllPlayers()
-      ]);
+      // Mobile-optimized loading with timeout and error handling
+      const loadPromise = async () => {
+        // Load from local storage first with mobile-specific timeout
+        const [storedMatches, storedPlayers] = await Promise.all([
+          storageService.getAllMatches(),
+          storageService.getAllPlayers()
+        ]);
+        
+        return { storedMatches, storedPlayers };
+      };
+      
+      // Add timeout protection for mobile devices
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('📱 Mobile loading timeout - data loading took too long'));
+        }, isMobile ? 12000 : 30000); // 12s mobile, 30s desktop
+      });
+      
+      let storedMatches: any[], storedPlayers: any[];
+      
+      try {
+        const result = await Promise.race([loadPromise(), timeoutPromise]);
+        storedMatches = result.storedMatches;
+        storedPlayers = result.storedPlayers;
+      } catch (timeoutError) {
+        if (isMobile && timeoutError instanceof Error && timeoutError.message.includes('timeout')) {
+          // Mobile fallback: try to load minimal data
+          console.warn('📱 Mobile timeout detected, trying fallback loading...');
+          
+          try {
+            storedMatches = await storageService.getAllMatches();
+            storedPlayers = await storageService.getAllPlayers();
+            console.log('✅ Mobile fallback loading successful');
+          } catch (fallbackError) {
+            throw new Error('📱 Mobile loading failed. Please refresh the page and check your internet connection.');
+          }
+        } else {
+          throw timeoutError;
+        }
+      }
       
       // Filter matches by group - only show matches where players are from this group
       const groupMatches = storedMatches.filter(match => {
@@ -113,13 +153,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
       await checkConnectionAndSync();
       
     } catch (err) {
-      setError('Failed to load data. Please try again.');
-      console.error('Error loading dashboard data:', err);
+      console.error('Failed to load dashboard data:', err);
+      
+      // Mobile-specific error handling
+      if (isMobile) {
+        if (err instanceof Error) {
+          if (err.message.includes('timeout')) {
+            setError('📱 Loading took too long on mobile. Please check your internet connection and try again.');
+          } else if (err.message.includes('storage')) {
+            setError('📱 Mobile storage issue. Please clear browser data and try again.');
+          } else if (err.message.includes('quota')) {
+            setError('📱 Storage full. Please clear some browser data and try again.');
+          } else {
+            setError(`📱 Mobile error: ${err.message}`);
+          }
+        } else {
+          setError('📱 Unknown mobile error. Please refresh the page.');
+        }
+      } else {
+        setError('Failed to load data. Please try again.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isMobile]);
 
   const checkConnectionAndSync = async () => {
     try {
@@ -264,13 +322,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
 
   useEffect(() => {
     loadData();
-    return () => {
-      setMatches([]);
-      setPlayers([]);
-      setSelectedPlayer(null);
-      setCurrentMatch(null);
-    };
-  }, [loadData]);
+    
+    // Mobile-specific timeout handling
+    if (isMobile) {
+      const timeout = setTimeout(() => {
+        if (loading) {
+          console.warn('📱 Mobile loading timeout detected');
+          setError('📱 Loading timeout on mobile device. Please check your internet connection and try again.');
+          setLoading(false);
+        }
+      }, 15000); // 15 seconds for mobile
+      
+      setLoadingTimeout(timeout);
+      
+      return () => {
+        if (timeout) clearTimeout(timeout);
+      };
+    }
+  }, []);
+
+  // Cleanup timeout when loading completes
+  useEffect(() => {
+    if (!loading && loadingTimeout) {
+      clearTimeout(loadingTimeout);
+      setLoadingTimeout(null);
+    }
+  }, [loading, loadingTimeout]);
 
   useEffect(() => {
     const handleMatchSaved = () => {
@@ -524,10 +601,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
   );
 
   const renderLoading = () => (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="text-center">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="text-center max-w-sm w-full">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-        <p className="text-gray-600">Loading dashboard data...</p>
+        <p className="text-gray-600 mb-2">
+          {isMobile ? '📱 Loading group data on mobile...' : 'Loading dashboard data...'}
+        </p>
+        {isMobile && (
+          <p className="text-sm text-gray-500">
+            This may take longer on mobile devices. Please wait...
+          </p>
+        )}
       </div>
     </div>
   );

@@ -10,9 +10,16 @@ const DB_VERSION = 6; // Increment version to fix group indexing issues
 const BACKUP_KEY = 'cricket_scorer_backup';
 const AUTO_BACKUP_INTERVAL = 15 * 60 * 1000; // 15 minutes - reduced frequency to prevent crashes
 
+// Mobile-specific constants
+const MOBILE_TIMEOUT = 10000; // 10 seconds for mobile operations
+const MOBILE_RETRY_ATTEMPTS = 3;
+const IS_MOBILE = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
 class StorageService {
   private db: IDBDatabase | null = null;
   private backupTimer: NodeJS.Timeout | null = null;
+  private initPromise: Promise<void> | null = null;
+  private initAttempts = 0;
 
   // Initialize sync services (lazy loading to avoid circular dependency)
   private initAutoSync(): void {
@@ -46,71 +53,263 @@ class StorageService {
   }
 
   async init(): Promise<void> {
+    // Prevent multiple initialization attempts
+    if (this.initPromise) {
+      return this.initPromise;
+    }
+
+    this.initPromise = this.performInit();
+    return this.initPromise;
+  }
+
+  private async performInit(): Promise<void> {
+    this.initAttempts++;
+    console.log(`📱 Initializing storage (attempt ${this.initAttempts}), mobile: ${IS_MOBILE}`);
+
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => {
-        this.db = request.result;
-        // Initialize auto-sync service after storage is ready
-        this.initAutoSync();
-        resolve();
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result;
-
-        // Create players store
-        if (!db.objectStoreNames.contains('players')) {
-          const playersStore = db.createObjectStore('players', { keyPath: 'id' });
-          playersStore.createIndex('name', 'name', { unique: false });
-          playersStore.createIndex('isGroupMember', 'isGroupMember', { unique: false });
-          playersStore.createIndex('groupIds', 'groupIds', { unique: false, multiEntry: true });
+      // Mobile-specific timeout
+      const timeout = setTimeout(() => {
+        console.error('❌ Storage initialization timeout on mobile device');
+        if (IS_MOBILE && this.initAttempts < MOBILE_RETRY_ATTEMPTS) {
+          // Retry with progressive delays for mobile
+          setTimeout(() => {
+            this.initPromise = null;
+            this.performInit().then(resolve).catch(reject);
+          }, 2000 * this.initAttempts);
+        } else {
+          reject(new Error('Storage initialization timeout - please refresh the page'));
         }
+      }, IS_MOBILE ? MOBILE_TIMEOUT : 5000);
 
-        // Create matches store
-        if (!db.objectStoreNames.contains('matches')) {
-          const matchesStore = db.createObjectStore('matches', { keyPath: 'id' });
-          matchesStore.createIndex('startTime', 'startTime', { unique: false });
-          matchesStore.createIndex('groupId', 'groupId', { unique: false });
-          matchesStore.createIndex('isCompleted', 'isCompleted', { unique: false });
-        }
+      try {
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        // Handle users store - recreate if exists to fix unique constraint
-        if (db.objectStoreNames.contains('users')) {
-          db.deleteObjectStore('users');
-        }
-        const usersStore = db.createObjectStore('users', { keyPath: 'id' });
-        usersStore.createIndex('email', 'email', { unique: false }); // Changed to non-unique
-        usersStore.createIndex('phone', 'phone', { unique: false });
+        request.onerror = () => {
+          clearTimeout(timeout);
+          console.error('❌ IndexedDB open failed:', request.error);
+          
+          if (IS_MOBILE) {
+            // Mobile fallback strategy
+            console.log('📱 Attempting mobile fallback storage...');
+            this.initMobileFallback()
+              .then(() => {
+                console.log('✅ Mobile fallback storage initialized');
+                resolve();
+              })
+              .catch(fallbackError => {
+                console.error('❌ Mobile fallback failed:', fallbackError);
+                reject(new Error(`Mobile storage initialization failed: ${request.error?.message || 'Unknown error'}`));
+              });
+          } else {
+            reject(request.error);
+          }
+        };
 
-        // Handle groups store - Create if not exists with proper indexes
-        if (!db.objectStoreNames.contains('groups')) {
-          const groupsStore = db.createObjectStore('groups', { keyPath: 'id' });
-          groupsStore.createIndex('inviteCode', 'inviteCode', { unique: true });
-          groupsStore.createIndex('createdBy', 'createdBy', { unique: false });
-          console.log('✅ Created groups store with inviteCode index');
-        }
-        // Note: For existing stores, the manual search fallback handles missing indexes
+        request.onsuccess = () => {
+          clearTimeout(timeout);
+          this.db = request.result;
+          
+          // Add error handler for future database operations
+          this.db.onerror = (event) => {
+            console.error('❌ Database error:', event);
+          };
 
-        // Handle invitations store - only recreate if needed to fix structure
-        if (!db.objectStoreNames.contains('invitations')) {
-          const invitationsStore = db.createObjectStore('invitations', { keyPath: 'id' });
-          invitationsStore.createIndex('groupId', 'groupId', { unique: false });
-          invitationsStore.createIndex('invitedEmail', 'invitedEmail', { unique: false });
-        }
+          // Initialize auto-sync service after storage is ready
+          this.initAutoSync();
+          console.log('✅ Storage initialized successfully');
+          resolve();
+        };
 
-        // Create settings store
-        if (!db.objectStoreNames.contains('settings')) {
-          db.createObjectStore('settings', { keyPath: 'key' });
+        request.onupgradeneeded = (event) => {
+          clearTimeout(timeout);
+          console.log('🔄 Upgrading database schema...');
+          
+          const db = (event.target as IDBOpenDBRequest).result;
+
+          try {
+            // Create players store
+            if (!db.objectStoreNames.contains('players')) {
+              const playersStore = db.createObjectStore('players', { keyPath: 'id' });
+              playersStore.createIndex('name', 'name', { unique: false });
+              playersStore.createIndex('isGroupMember', 'isGroupMember', { unique: false });
+              playersStore.createIndex('groupIds', 'groupIds', { unique: false, multiEntry: true });
+            }
+
+            // Create matches store
+            if (!db.objectStoreNames.contains('matches')) {
+              const matchesStore = db.createObjectStore('matches', { keyPath: 'id' });
+              matchesStore.createIndex('startTime', 'startTime', { unique: false });
+              matchesStore.createIndex('groupId', 'groupId', { unique: false });
+              matchesStore.createIndex('isCompleted', 'isCompleted', { unique: false });
+            }
+
+            // Handle users store - recreate if exists to fix unique constraint
+            if (db.objectStoreNames.contains('users')) {
+              db.deleteObjectStore('users');
+            }
+            const usersStore = db.createObjectStore('users', { keyPath: 'id' });
+            usersStore.createIndex('email', 'email', { unique: false }); // Changed to non-unique
+            usersStore.createIndex('phone', 'phone', { unique: false });
+
+            // Handle groups store - Create if not exists with proper indexes
+            if (!db.objectStoreNames.contains('groups')) {
+              const groupsStore = db.createObjectStore('groups', { keyPath: 'id' });
+              groupsStore.createIndex('inviteCode', 'inviteCode', { unique: true });
+              groupsStore.createIndex('createdBy', 'createdBy', { unique: false });
+              console.log('✅ Created groups store with inviteCode index');
+            }
+
+            // Handle invitations store - only recreate if needed to fix structure
+            if (!db.objectStoreNames.contains('invitations')) {
+              const invitationsStore = db.createObjectStore('invitations', { keyPath: 'id' });
+              invitationsStore.createIndex('groupId', 'groupId', { unique: false });
+              invitationsStore.createIndex('invitedEmail', 'invitedEmail', { unique: false });
+            }
+
+            // Create settings store
+            if (!db.objectStoreNames.contains('settings')) {
+              db.createObjectStore('settings', { keyPath: 'key' });
+            }
+
+            console.log('✅ Database schema upgrade completed');
+          } catch (upgradeError) {
+            console.error('❌ Database upgrade failed:', upgradeError);
+            // Don't reject here, let the success handler take over
+          }
+        };
+
+        request.onblocked = () => {
+          console.warn('⚠️ Database blocked by another tab, retrying...');
+          clearTimeout(timeout);
+          if (IS_MOBILE) {
+            // Mobile retry with delay
+            setTimeout(() => {
+              this.initPromise = null;
+              this.performInit().then(resolve).catch(reject);
+            }, 3000);
+          }
+        };
+
+      } catch (error) {
+        clearTimeout(timeout);
+        console.error('❌ IndexedDB not supported or failed:', error);
+        
+        if (IS_MOBILE) {
+          // Try mobile fallback
+          this.initMobileFallback()
+            .then(() => resolve())
+            .catch(fallbackError => reject(fallbackError));
+        } else {
+          reject(error);
         }
-      };
+      }
     });
+  }
+
+  // Mobile fallback using localStorage with IndexedDB simulation
+  private async initMobileFallback(): Promise<void> {
+    console.log('📱 Initializing mobile fallback storage...');
+    
+    try {
+      // Check if localStorage is available and has space
+      const testKey = 'mobile_storage_test';
+      localStorage.setItem(testKey, 'test');
+      localStorage.removeItem(testKey);
+      
+      // Create mock database interface for mobile
+      this.db = {
+        transaction: () => ({
+          objectStore: () => ({
+            get: (key: string) => ({
+              onsuccess: null,
+              onerror: null,
+              result: this.getMobileData(key)
+            }),
+            put: (data: any) => ({
+              onsuccess: null,
+              onerror: null
+            }),
+            getAll: () => ({
+              onsuccess: null,
+              onerror: null,
+              result: []
+            })
+          })
+        })
+      } as any;
+      
+      console.log('✅ Mobile fallback storage initialized');
+    } catch (error) {
+      throw new Error(`Mobile fallback storage failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  private getMobileData(key: string): any {
+    try {
+      const data = localStorage.getItem(`mobile_${key}`);
+      return data ? JSON.parse(data) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private setMobileData(key: string, data: any): void {
+    try {
+      localStorage.setItem(`mobile_${key}`, JSON.stringify(data));
+    } catch (error) {
+      console.warn('⚠️ Mobile storage write failed:', error);
+    }
+  }
+
+  // Enhanced operation wrapper with mobile-specific error handling
+  private async withMobileErrorHandling<T>(
+    operation: () => Promise<T>,
+    operationName: string,
+    fallbackValue?: T
+  ): Promise<T> {
+    try {
+      // Add timeout for mobile operations
+      if (IS_MOBILE) {
+        return await Promise.race([
+          operation(),
+          new Promise<T>((_, reject) => 
+            setTimeout(() => reject(new Error(`Mobile operation timeout: ${operationName}`)), MOBILE_TIMEOUT)
+          )
+        ]);
+      } else {
+        return await operation();
+      }
+    } catch (error) {
+      console.error(`❌ Mobile operation failed (${operationName}):`, error);
+      
+      if (fallbackValue !== undefined) {
+        console.log(`📱 Using fallback value for ${operationName}`);
+        return fallbackValue;
+      }
+      
+      // On mobile, try to continue with limited functionality
+      if (IS_MOBILE && error instanceof Error && error.message.includes('timeout')) {
+        throw new Error(`⏱️ Mobile loading timeout: ${operationName}. Please check your internet connection and try again.`);
+      }
+      
+      throw error;
+    }
+  }
+
+  // Enhanced database check with mobile considerations
+  private ensureDbReady(): void {
+    if (!this.db) {
+      if (IS_MOBILE) {
+        throw new Error('📱 Mobile storage not ready. Please refresh the page and check your internet connection.');
+      } else {
+        throw new Error('Database not initialized');
+      }
+    }
   }
 
   // Player methods
   async savePlayer(player: Player): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['players'], 'readwrite');
@@ -144,7 +343,7 @@ class StorageService {
 
   // Batch save multiple players efficiently
   async savePlayersBatch(players: Player[]): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
     if (players.length === 0) return;
 
     return new Promise((resolve, reject) => {
@@ -176,7 +375,7 @@ class StorageService {
   }
 
   async getPlayer(id: string): Promise<Player | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['players'], 'readonly');
@@ -189,7 +388,7 @@ class StorageService {
   }
 
   async getAllPlayers(): Promise<Player[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction =  this.db!.transaction(['players'], 'readonly');
@@ -202,20 +401,20 @@ class StorageService {
   }
 
   async getGroupPlayers(groupId: string): Promise<Player[]> {
-    try {
+    return this.withMobileErrorHandling(async () => {
       const allPlayers = await this.getAllPlayers();
-      return allPlayers.filter(player => 
+      const groupPlayers = allPlayers.filter(player => 
         player.isGroupMember && 
         player.groupIds?.includes(groupId)
       );
-    } catch (error) {
-      console.error('Failed to get group players:', error);
-      return [];
-    }
+      
+      console.log(`📱 Loaded ${groupPlayers.length} players for group ${groupId}`);
+      return groupPlayers;
+    }, `getGroupPlayers(${groupId})`, []);
   }
 
   async removePlayerFromGroup(playerId: string, groupId: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     try {
       const player = await this.getPlayer(playerId);
@@ -249,16 +448,18 @@ class StorageService {
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
-    const allPlayers = await this.getAllPlayers();
-    return allPlayers.filter(player => 
-      player.name.toLowerCase().includes(query.toLowerCase()) ||
-      (player.shortId && player.shortId.toLowerCase().includes(query.toLowerCase()))
-    );
+    return this.withMobileErrorHandling(async () => {
+      const allPlayers = await this.getAllPlayers();
+      return allPlayers.filter(player => 
+        player.name.toLowerCase().includes(query.toLowerCase()) ||
+        (player.shortId && player.shortId.toLowerCase().includes(query.toLowerCase()))
+      );
+    }, `searchPlayers(${query})`, []);
   }
 
   // Match methods
   async saveMatch(match: Match): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readwrite');
@@ -283,7 +484,7 @@ class StorageService {
   }
 
   async getMatch(id: string): Promise<Match | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readonly');
@@ -296,7 +497,7 @@ class StorageService {
   }
 
   async getAllMatches(): Promise<Match[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readonly');
@@ -309,9 +510,9 @@ class StorageService {
   }
 
   async getGroupMatches(groupId: string): Promise<Match[]> {
-    try {
+    return this.withMobileErrorHandling(async () => {
       const allMatches = await this.getAllMatches();
-      return allMatches.filter(match => {
+      const groupMatches = allMatches.filter(match => {
         // Check if any players in the match belong to this group
         const allMatchPlayers = [
           ...match.team1.players,
@@ -325,14 +526,14 @@ class StorageService {
           player.groupIds?.includes(groupId)
         );
       });
-    } catch (error) {
-      console.error('Failed to get group matches:', error);
-      return [];
-    }
+      
+      console.log(`📱 Loaded ${groupMatches.length} matches for group ${groupId}`);
+      return groupMatches;
+    }, `getGroupMatches(${groupId})`, []);
   }
 
   async getIncompleteMatch(): Promise<Match | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readonly');
@@ -351,7 +552,7 @@ class StorageService {
   }
 
   async saveMatchState(match: Match): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readwrite');
@@ -371,7 +572,7 @@ class StorageService {
   }
 
   async clearIncompleteMatches(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['matches'], 'readwrite');
@@ -401,7 +602,7 @@ class StorageService {
 
   // User methods
   async saveUser(user: User): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['users'], 'readwrite');
@@ -426,7 +627,7 @@ class StorageService {
   }
 
   async getUser(id: string): Promise<User | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['users'], 'readonly');
@@ -439,7 +640,7 @@ class StorageService {
   }
 
   async getUserByEmail(email: string): Promise<User | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['users'], 'readonly');
@@ -453,7 +654,7 @@ class StorageService {
   }
 
   async getUserByPhone(phone: string): Promise<User | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['users'], 'readonly');
       const store = transaction.objectStore('users');
@@ -467,7 +668,7 @@ class StorageService {
 
   // Group methods
   async saveGroup(group: Group): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('💾 Storage: Saving group with invite code:', group.inviteCode);
 
@@ -498,7 +699,7 @@ class StorageService {
   }
 
   async getGroup(id: string): Promise<Group | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['groups'], 'readonly');
@@ -511,7 +712,7 @@ class StorageService {
   }
 
   async getGroupByInviteCode(inviteCode: string): Promise<Group | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     // Clean and normalize the invite code
     const cleanInviteCode = inviteCode.trim().toUpperCase();
@@ -581,7 +782,7 @@ class StorageService {
 
   // Invitation methods
   async saveInvitation(invitation: Invitation): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['invitations'], 'readwrite');
@@ -594,7 +795,7 @@ class StorageService {
   }
 
   async getInvitation(id: string): Promise<Invitation | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['invitations'], 'readonly');
@@ -608,7 +809,7 @@ class StorageService {
 
   // Clear all data (for debugging)
   async clearAllData(): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['players', 'matches', 'users', 'groups', 'invitations', 'settings'], 'readwrite');
@@ -689,7 +890,7 @@ class StorageService {
   }
   
   async getAllUsers(): Promise<User[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['users'], 'readonly');
@@ -702,16 +903,22 @@ class StorageService {
   }
   
   async getAllGroups(): Promise<Group[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    return this.withMobileErrorHandling(async () => {
+      this.ensureDbReady();
 
-    return new Promise((resolve, reject) => {
-      const transaction = this.db!.transaction(['groups'], 'readonly');
-      const store = transaction.objectStore('groups');
-      const request = store.getAll();
+      return new Promise<Group[]>((resolve, reject) => {
+        const transaction = this.db!.transaction(['groups'], 'readonly');
+        const store = transaction.objectStore('groups');
+        const request = store.getAll();
 
-      request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve(request.result || []);
-    });
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const groups = request.result || [];
+          console.log(`📱 Loaded ${groups.length} groups from storage`);
+          resolve(groups);
+        };
+      });
+    }, 'getAllGroups', []);
   }
 
   // Enhanced Persistence Methods
@@ -957,7 +1164,7 @@ class StorageService {
   }
 
   async getAllSettings(): Promise<Array<{key: string, value: any}>> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['settings'], 'readonly');
@@ -970,7 +1177,7 @@ class StorageService {
   }
 
   async saveSetting(key: string, value: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['settings'], 'readwrite');
@@ -983,7 +1190,7 @@ class StorageService {
   }
 
   async getSetting(key: string): Promise<any> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction(['settings'], 'readonly');
@@ -1076,7 +1283,7 @@ class StorageService {
 
   // Enhanced user methods with comprehensive profile data
   async saveUserProfile(user: User): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('💾 Saving comprehensive user profile:', user.email || user.phone);
 
@@ -1099,7 +1306,7 @@ class StorageService {
 
   // Get comprehensive user data by email/phone
   async getUserProfileByIdentifier(identifier: string): Promise<User | null> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🔍 Loading user profile by identifier:', identifier);
 
@@ -1206,7 +1413,7 @@ class StorageService {
 
   // Get all user groups with comprehensive data
   async getUserGroups(userId: string): Promise<Group[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🔍 Loading user groups for:', userId);
 
@@ -1232,7 +1439,7 @@ class StorageService {
 
   // Get all user matches with comprehensive data
   async getUserMatches(userId: string): Promise<Match[]> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🔍 Loading user matches for:', userId);
 
@@ -1269,7 +1476,7 @@ class StorageService {
 
   // Update user statistics after a match
   async updateUserStatistics(userId: string, matchStats: any): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('📊 Updating user statistics for:', userId);
 
@@ -1434,7 +1641,7 @@ class StorageService {
 
   // Delete methods
   async deleteMatch(matchId: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🗑️ Deleting match from local storage:', matchId);
 
@@ -1460,7 +1667,7 @@ class StorageService {
   }
 
   async deletePlayer(playerId: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🗑️ Deleting player from local storage:', playerId);
 
@@ -1486,7 +1693,7 @@ class StorageService {
   }
 
   async deleteGroup(groupId: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🗑️ Deleting group from local storage:', groupId);
 
@@ -1512,7 +1719,7 @@ class StorageService {
   }
 
   async deleteUser(userId: string): Promise<void> {
-    if (!this.db) throw new Error('Database not initialized');
+    this.ensureDbReady();
 
     console.log('🗑️ Deleting user from local storage:', userId);
 
