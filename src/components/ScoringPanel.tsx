@@ -406,6 +406,9 @@ export const ScoringPanel: React.FC<ScoringPanelProps> = ({
           players={getPlayersForSelector()}
           allowAddPlayer={true}
           groupId={currentGroup?.id}
+          recommendationRole={showPlayerSelector.type === 'fielder' ? 'fielding' : 'batting'}
+          match={match}
+          showRecommendations={true}
         />
       )}
 

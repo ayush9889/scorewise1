@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Plus, Search, User, Camera, X, Phone, Crown, Users as UsersIcon } from 'lucide-react';
-import { Player } from '../types/cricket';
+import { Plus, Search, User, Camera, X, Phone, Crown, Users as UsersIcon, Star, Award, Target, Shield, TrendingUp } from 'lucide-react';
+import { Player, Match } from '../types/cricket';
 import { storageService } from '../services/storage';
 import { authService } from '../services/authService';
+import { PlayerRecommendationService, PlayerRecommendation, RecommendationContext } from '../services/playerRecommendationService';
 
 interface PlayerSelectorProps {
   onPlayerSelect: (player: Player) => void;
@@ -14,6 +15,10 @@ interface PlayerSelectorProps {
   allowAddPlayer?: boolean;
   groupId?: string;
   filterByGroup?: boolean; // New prop to filter by current group
+  // NEW: Enhanced recommendation props
+  recommendationRole?: 'batting' | 'bowling' | 'fielding' | 'wicketkeeper';
+  match?: Match; // Current match for contextual recommendations
+  showRecommendations?: boolean; // Whether to show recommendation badges and sorting
 }
 
 export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
@@ -25,7 +30,10 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   showOnlyAvailable = false,
   allowAddPlayer = true,
   groupId,
-  filterByGroup = false
+  filterByGroup = false,
+  recommendationRole,
+  match,
+  showRecommendations = true
 }) => {
   const [filteredPlayers, setFilteredPlayers] = useState<Player[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -42,6 +50,10 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
   const [searchSuggestions, setSearchSuggestions] = useState<Player[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // NEW: Recommendation state
+  const [recommendations, setRecommendations] = useState<PlayerRecommendation[]>([]);
+  const [showRecommendationPanel, setShowRecommendationPanel] = useState(false);
 
   const currentGroup = authService.getCurrentGroup();
 
@@ -73,6 +85,36 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
     setFilteredPlayers(finalPlayers);
     setAllPlayers(players); // Set all players for search
   }, [players, excludePlayerIds, filterByGroup, currentGroup]);
+
+  // Generate recommendations when players or role changes
+  useEffect(() => {
+    if (showRecommendations && recommendationRole && players.length > 0) {
+      const context = PlayerRecommendationService.getContextualRecommendations(
+        players,
+        recommendationRole,
+        match
+      );
+      
+      let recs: PlayerRecommendation[] = [];
+      
+      switch (recommendationRole) {
+        case 'batting':
+          recs = PlayerRecommendationService.getBattingRecommendations(players, context, match);
+          break;
+        case 'bowling':
+          recs = PlayerRecommendationService.getBowlingRecommendations(players, context, match);
+          break;
+        case 'fielding':
+        case 'wicketkeeper':
+          recs = PlayerRecommendationService.getFieldingRecommendations(players, { ...context, role: recommendationRole }, match);
+          break;
+      }
+      
+      setRecommendations(recs);
+      console.log(`🎯 Generated ${recs.length} recommendations for ${recommendationRole}:`, 
+        recs.slice(0, 3).map(r => `${r.player.name} (${r.badge}, ${r.score.toFixed(1)})`));
+    }
+  }, [players, recommendationRole, match, showRecommendations]);
 
   // MEMOIZED: Base players for search (prevents recalculation)
   const basePlayersForSearch = useMemo(() => {
@@ -356,6 +398,81 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
     }
   };
 
+  // Get recommendation badge for a player
+  const getRecommendationBadge = (player: Player) => {
+    if (!showRecommendations || recommendations.length === 0) return null;
+    
+    const rec = recommendations.find(r => r.player.id === player.id);
+    if (!rec) return null;
+
+    const badgeConfig = {
+      excellent: { 
+        color: 'bg-green-500 text-white', 
+        icon: <Star className="w-3 h-3" />,
+        text: 'Excellent'
+      },
+      good: { 
+        color: 'bg-blue-500 text-white', 
+        icon: <Award className="w-3 h-3" />,
+        text: 'Good'
+      },
+      average: { 
+        color: 'bg-yellow-500 text-white', 
+        icon: <Target className="w-3 h-3" />,
+        text: 'Average'
+      },
+      backup: { 
+        color: 'bg-gray-500 text-white', 
+        icon: <Shield className="w-3 h-3" />,
+        text: 'Backup'
+      }
+    };
+
+    const config = badgeConfig[rec.badge];
+    
+    return (
+      <div className="flex flex-col items-center space-y-1">
+        <span className={`text-xs px-2 py-1 rounded-full flex items-center space-x-1 ${config.color}`}>
+          {config.icon}
+          <span>{config.text}</span>
+        </span>
+        {rec.isTopChoice && (
+          <span className="text-xs bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-2 py-0.5 rounded-full font-semibold">
+            TOP CHOICE
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  // Get recommendation reasons for a player
+  const getRecommendationReasons = (player: Player): string[] => {
+    if (!showRecommendations || recommendations.length === 0) return [];
+    
+    const rec = recommendations.find(r => r.player.id === player.id);
+    return rec ? rec.reasons : [];
+  };
+
+  // Sort players by recommendations if available
+  const sortPlayersByRecommendations = (players: Player[]): Player[] => {
+    if (!showRecommendations || recommendations.length === 0) {
+      return players;
+    }
+
+    return [...players].sort((a, b) => {
+      const recA = recommendations.find(r => r.player.id === a.id);
+      const recB = recommendations.find(r => r.player.id === b.id);
+      
+      // Players with recommendations come first
+      if (recA && !recB) return -1;
+      if (!recA && recB) return 1;
+      if (!recA && !recB) return 0;
+      
+      // Sort by recommendation score
+      return recB!.score - recA!.score;
+    });
+  };
+
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-2 sm:p-4 animate-fadeIn">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[95vh] sm:max-h-[90vh] flex flex-col modal-performance no-flicker animate-slideUp">
@@ -424,6 +541,37 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
             </div>
           )}
         </div>
+
+        {/* Recommendation Panel - Fixed */}
+        {showRecommendations && recommendationRole && recommendations.length > 0 && (
+          <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-purple-50 flex-shrink-0">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-gray-900 flex items-center">
+                <TrendingUp className="w-4 h-4 mr-2 text-blue-600" />
+                Smart Recommendations for {recommendationRole.charAt(0).toUpperCase() + recommendationRole.slice(1)}
+              </h3>
+              <button
+                onClick={() => setShowRecommendationPanel(!showRecommendationPanel)}
+                className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full hover:bg-blue-200 transition-colors"
+              >
+                {showRecommendationPanel ? 'Hide' : 'Show'} Details
+              </button>
+            </div>
+            
+            {showRecommendationPanel && (
+              <div className="text-sm text-gray-600 space-y-2">
+                <p>🎯 Top recommendations based on player stats, match situation, and {recommendationRole} requirements.</p>
+                <div className="flex flex-wrap gap-2">
+                  {recommendations.slice(0, 3).map((rec) => (
+                    <span key={rec.player.id} className="bg-white px-2 py-1 rounded-lg border text-xs">
+                      <span className="font-medium">{rec.player.name}</span> - {rec.badge}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Guest Player Quick Add - Fixed */}
         <div className="p-4 border-b border-gray-200 bg-gradient-to-r from-orange-50 to-yellow-50 flex-shrink-0">
@@ -509,21 +657,23 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                         </span>
                       </h4>
                     </div>
-                    {filteredPlayers
-                      .filter(p => p.isGroupMember && currentGroup && p.groupIds?.includes(currentGroup.id))
-                      .sort((a, b) => {
-                        // Sort admins first, then regular members
-                        const aIsAdmin = currentGroup.createdBy === a.id.replace('player_', '') || 
-                          currentGroup.members?.some(m => m.userId === a.id.replace('player_', '') && m.role === 'admin');
-                        const bIsAdmin = currentGroup.createdBy === b.id.replace('player_', '') || 
-                          currentGroup.members?.some(m => m.userId === b.id.replace('player_', '') && m.role === 'admin');
-                        
-                        if (aIsAdmin && !bIsAdmin) return -1;
-                        if (!aIsAdmin && bIsAdmin) return 1;
-                        
-                        // Then sort alphabetically
-                        return a.name.localeCompare(b.name);
-                      })
+                    {sortPlayersByRecommendations(
+                      filteredPlayers
+                        .filter(p => p.isGroupMember && currentGroup && p.groupIds?.includes(currentGroup.id))
+                        .sort((a, b) => {
+                          // Sort admins first, then regular members
+                          const aIsAdmin = currentGroup.createdBy === a.id.replace('player_', '') || 
+                            currentGroup.members?.some(m => m.userId === a.id.replace('player_', '') && m.role === 'admin');
+                          const bIsAdmin = currentGroup.createdBy === b.id.replace('player_', '') || 
+                            currentGroup.members?.some(m => m.userId === b.id.replace('player_', '') && m.role === 'admin');
+                          
+                          if (aIsAdmin && !bIsAdmin) return -1;
+                          if (!aIsAdmin && bIsAdmin) return 1;
+                          
+                          // Then sort alphabetically if no recommendations
+                          return a.name.localeCompare(b.name);
+                        })
+                    )
                       .map((player) => (
                         <button
                           key={player.id}
@@ -562,10 +712,23 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                               <span>Runs: {player.stats.runsScored}</span>
                               <span>Wickets: {player.stats.wicketsTaken}</span>
                             </div>
+                            {/* Recommendation Reasons */}
+                            {showRecommendations && getRecommendationReasons(player).length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {getRecommendationReasons(player).slice(0, 2).map((reason, index) => (
+                                  <div key={index} className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                                    💡 {reason}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Selection Indicator */}
-                          <div className="w-6 h-6 rounded-full border-2 border-purple-300 group-hover:border-purple-500 transition-colors"></div>
+                          {/* Recommendation Badge & Selection Indicator */}
+                          <div className="flex flex-col items-center space-y-2">
+                            {getRecommendationBadge(player)}
+                            <div className="w-6 h-6 rounded-full border-2 border-purple-300 group-hover:border-purple-500 transition-colors"></div>
+                          </div>
                         </button>
                       ))}
                   </>
@@ -580,8 +743,10 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                         Guest Players
                       </h4>
                     </div>
-                    {filteredPlayers
-                      .filter(p => p.isGuest)
+                    {sortPlayersByRecommendations(
+                      filteredPlayers
+                        .filter(p => p.isGuest)
+                    )
                       .map((player) => (
                         <button
                           key={player.id}
@@ -609,10 +774,23 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                               <span>Runs: {player.stats.runsScored}</span>
                               <span>Wickets: {player.stats.wicketsTaken}</span>
                             </div>
+                            {/* Recommendation Reasons */}
+                            {showRecommendations && getRecommendationReasons(player).length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {getRecommendationReasons(player).slice(0, 2).map((reason, index) => (
+                                  <div key={index} className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
+                                    💡 {reason}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Selection Indicator */}
-                          <div className="w-6 h-6 rounded-full border-2 border-orange-300 group-hover:border-orange-500 transition-colors"></div>
+                          {/* Recommendation Badge & Selection Indicator */}
+                          <div className="flex flex-col items-center space-y-2">
+                            {getRecommendationBadge(player)}
+                            <div className="w-6 h-6 rounded-full border-2 border-orange-300 group-hover:border-orange-500 transition-colors"></div>
+                          </div>
                         </button>
                       ))}
                   </>
@@ -627,8 +805,10 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                         Other Players
                       </h4>
                     </div>
-                    {filteredPlayers
-                      .filter(p => !p.isGuest && !(p.isGroupMember && currentGroup && p.groupIds?.includes(currentGroup.id)))
+                    {sortPlayersByRecommendations(
+                      filteredPlayers
+                        .filter(p => !p.isGuest && !(p.isGroupMember && currentGroup && p.groupIds?.includes(currentGroup.id)))
+                    )
                       .map((player) => (
                         <button
                           key={player.id}
@@ -664,10 +844,23 @@ export const PlayerSelector: React.FC<PlayerSelectorProps> = ({
                               <span>Runs: {player.stats.runsScored}</span>
                               <span>Wickets: {player.stats.wicketsTaken}</span>
                             </div>
+                            {/* Recommendation Reasons */}
+                            {showRecommendations && getRecommendationReasons(player).length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {getRecommendationReasons(player).slice(0, 2).map((reason, index) => (
+                                  <div key={index} className="text-xs text-gray-600 bg-gray-50 px-2 py-1 rounded">
+                                    💡 {reason}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Selection Indicator */}
-                          <div className="w-6 h-6 rounded-full border-2 border-gray-300 group-hover:border-gray-500 transition-colors"></div>
+                          {/* Recommendation Badge & Selection Indicator */}
+                          <div className="flex flex-col items-center space-y-2">
+                            {getRecommendationBadge(player)}
+                            <div className="w-6 h-6 rounded-full border-2 border-gray-300 group-hover:border-gray-500 transition-colors"></div>
+                          </div>
                         </button>
                       ))}
                   </>

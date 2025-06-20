@@ -4,6 +4,7 @@ A comprehensive cricket scoring application with real-time scoring, player stati
 
 ## Features
 
+- **🎯 Smart Player Recommendations**: Intelligent suggestions for batting, bowling, and fielding based on player stats and match context
 - **Real-time Cricket Scoring**: Professional-grade ball-by-ball scoring
 - **Phone Number Verification**: Production-ready SMS/Voice OTP via multiple providers
 - **Group Management**: Create and manage cricket groups with member invitations
@@ -12,6 +13,7 @@ A comprehensive cricket scoring application with real-time scoring, player stati
 - **Cloud Sync**: Firebase integration for data backup and synchronization
 - **Offline Support**: Works offline with automatic sync when online
 - **PDF Export**: Generate and share detailed scorecards
+- **📊 Advanced Analytics**: Performance tracking with recommendation system
 - **Responsive Design**: Works on all devices
 
 ## Setup Instructions
