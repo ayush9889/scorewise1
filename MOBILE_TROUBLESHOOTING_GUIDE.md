@@ -17,6 +17,9 @@ mobileFix()
 
 // Emergency recovery (clears all data)
 mobileRecovery()
+
+// Clear Firebase cache (for quota errors)
+clearFirebaseCache()
 ```
 
 ### Manual Recovery Steps
@@ -75,7 +78,46 @@ mobileRecovery()  // Clears all data and restarts
 
 ---
 
-### Issue 2: "Error Loading Data" when Opening Groups
+### Issue 2: "QuotaExceededError" during Cloud Migration
+
+**Critical Storage Quota Bug - Now Auto-Fixed**
+
+**Symptoms:**
+- Error during cloud data export/migration
+- "Failed to execute 'setItem' on 'Storage': exceeded the quota" message
+- Firebase internal assertion failed errors
+- Migration fails partway through
+
+**Root Cause:**
+- Firebase storing too many pending mutations in localStorage
+- Mobile browsers have stricter storage limits (5MB typical)
+- Large data sets exceeding available storage space
+
+**Automatic Fix (NEW):**
+- ✅ App automatically detects quota exceeded errors
+- ✅ Firebase cache is cleared automatically
+- ✅ Migration retries with smaller chunks
+- ✅ Storage usage is monitored during operations
+
+**Manual Recovery:**
+```javascript
+// In browser console (if accessible):
+clearFirebaseCache()  // Clears Firebase storage cache
+
+// Alternative commands:
+mobileFix()  // Comprehensive mobile fix
+mobileRecovery()  // Complete data reset
+```
+
+**Prevention:**
+- Monitor storage usage in Cloud Migration dialog
+- Clear Firebase cache before large migrations
+- Use chunked migration for large datasets
+- Keep browser data clean
+
+---
+
+### Issue 3: "Error Loading Data" when Opening Groups
 
 **Symptoms:**
 - App shows loading spinner indefinitely

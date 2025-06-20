@@ -155,6 +155,9 @@ export class MobileDebugService {
       // Install undefined players error handler
       this.fixUndefinedPlayersError();
       
+      // Install quota exceeded error handler
+      this.fixQuotaExceededError();
+      
       // Clear problematic localStorage entries
       const keysToRemove = Object.keys(localStorage).filter(key => 
         key.includes('temp_') || 
@@ -263,6 +266,91 @@ export class MobileDebugService {
       console.warn('⚠️ Could not install players error handlers:', error);
     }
   }
+
+  // Fix the "QuotaExceededError" during Firebase operations
+  private static fixQuotaExceededError(): void {
+    console.log('🔧 Installing quota exceeded error handler...');
+    
+    try {
+      // Add global error handler for quota exceeded errors
+      window.addEventListener('error', (event) => {
+        if (event.error?.message?.includes('QuotaExceededError') || 
+            event.error?.message?.includes('exceeded the quota')) {
+          console.error('🚨 Storage Quota Exceeded Error Detected');
+          console.log('🔧 Auto-fixing: Clearing Firebase cache and storage');
+          
+          // Clear Firebase-related storage
+          this.clearFirebaseStorage();
+          
+          event.preventDefault();
+          return true;
+        }
+      });
+      
+      // Handle unhandled promise rejections for quota errors
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason?.message?.includes('QuotaExceededError') || 
+            event.reason?.message?.includes('exceeded the quota')) {
+          console.error('🚨 Storage Quota Promise Rejection');
+          console.log('🔧 Auto-fixing quota exceeded promise rejection');
+          
+          // Clear Firebase storage
+          this.clearFirebaseStorage();
+          
+          event.preventDefault();
+        }
+      });
+      
+      console.log('✅ Quota exceeded error handlers installed');
+      
+    } catch (error) {
+      console.warn('⚠️ Could not install quota error handlers:', error);
+    }
+  }
+
+  // Clear Firebase-related storage to free up quota
+  private static clearFirebaseStorage(): void {
+    try {
+      console.log('🧹 Clearing Firebase storage to resolve quota issue...');
+      
+      // Clear Firebase-specific localStorage entries
+      const firebaseKeys = Object.keys(localStorage).filter(key => 
+        key.includes('firebase') || 
+        key.includes('firestore') ||
+        key.includes('mutation') ||
+        key.includes('pending') ||
+        key.startsWith('firebase:') ||
+        key.includes('_mutations_') ||
+        key.includes('_online_state_')
+      );
+      
+      console.log(`🗑️ Found ${firebaseKeys.length} Firebase storage entries to clear`);
+      
+      firebaseKeys.forEach(key => {
+        try {
+          localStorage.removeItem(key);
+          console.log(`✅ Cleared Firebase key: ${key.substring(0, 50)}...`);
+        } catch (error) {
+          console.warn(`⚠️ Failed to clear key ${key}:`, error);
+        }
+      });
+      
+      // Also clear session storage
+      sessionStorage.clear();
+      
+      // Show user-friendly message
+      if (typeof window !== 'undefined' && window.alert) {
+        setTimeout(() => {
+          window.alert('🧹 Storage quota issue detected and fixed. Firebase cache cleared. You may need to sign in again.');
+        }, 100);
+      }
+      
+      console.log('✅ Firebase storage cleared successfully');
+      
+    } catch (error) {
+      console.error('❌ Failed to clear Firebase storage:', error);
+    }
+  }
   
   static async emergencyMobileRecovery(): Promise<void> {
     console.log('🚨 === EMERGENCY MOBILE RECOVERY ===');
@@ -304,4 +392,5 @@ export class MobileDebugService {
 // Add mobile diagnostics to window for easy access
 (window as any).mobileDebug = MobileDebugService.runMobileDiagnostics;
 (window as any).mobileFix = MobileDebugService.quickMobileFix;
-(window as any).mobileRecovery = MobileDebugService.emergencyMobileRecovery; 
+(window as any).mobileRecovery = MobileDebugService.emergencyMobileRecovery;
+(window as any).clearFirebaseCache = () => MobileDebugService.clearFirebaseStorage(); 
