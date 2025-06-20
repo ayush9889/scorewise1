@@ -5,6 +5,7 @@ import { cloudStorageService } from './cloudStorageService';
 import { firebasePhoneAuthService } from './firebasePhoneAuthService';
 import { firebaseAuthService } from './firebaseAuthService';
 import { userCloudSyncService } from './userCloudSyncService';
+import { rigidGroupManager } from './rigidGroupManager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
 
@@ -1420,6 +1421,11 @@ class AuthService {
       // Update current groups and ensure consistency
       this.currentGroups = loadedGroups;
       
+      // Refresh group visibility with rigid group manager
+      if (this.currentUser) {
+        await rigidGroupManager.refreshGroupVisibility(this.currentUser.id);
+      }
+      
       // Update user's groupIds to match loaded groups
       const groupIds = loadedGroups.map(g => g.id);
       if (this.currentUser.groupIds?.join(',') !== groupIds.join(',')) {
@@ -1438,7 +1444,7 @@ class AuthService {
       }
       
       this.saveGroupsToStorage();
-      console.log('✅ User groups loaded successfully:', this.currentGroups.length);
+      console.log('✅ User groups loaded successfully with rigid management:', this.currentGroups.length);
       
     } catch (error) {
       console.error('❌ Failed to load user groups:', error);
@@ -1451,19 +1457,34 @@ class AuthService {
   }
 
   getUserGroups(): Group[] {
-    return this.currentGroups;
+    // Filter out deleted groups using rigid group manager
+    const visibleGroups = rigidGroupManager.getVisibleGroups(this.currentGroups);
+    return visibleGroups;
   }
 
   getCurrentGroup(): Group | null {
-    const groups = this.getUserGroups();
-    return groups.length > 0 ? groups[0] : null; // Return first group as default
+    const availableGroups = this.getUserGroups();
+    // Use rigid group manager for consistent group selection
+    return rigidGroupManager.getCurrentGroup(availableGroups);
   }
 
   setCurrentGroup(group: Group): void {
-    // Move selected group to first position
+    console.log('🔒 AuthService: Setting current group with rigid management:', group.name);
+    
+    // Validate group is not deleted
+    if (rigidGroupManager.isGroupDeleted(group.id)) {
+      throw new Error('Cannot select a deleted group');
+    }
+    
+    // Use rigid group manager for stable group selection
+    rigidGroupManager.setCurrentGroup(group, true);
+    
+    // Also update the traditional storage for backward compatibility
     this.currentGroups = this.currentGroups.filter(g => g.id !== group.id);
     this.currentGroups.unshift(group);
     this.saveGroupsToStorage();
+    
+    console.log('✅ Current group set with rigid persistence');
   }
 
   private saveGroupsToStorage(): void {
@@ -1839,17 +1860,22 @@ class AuthService {
     return await storageService.exportUserData(identifier);
   }
 
-  // Delete group and all associated data
+  // Delete group and all associated data with RIGID PERMANENT DELETION
   async deleteGroup(groupId: string): Promise<void> {
     if (!this.currentUser) {
       throw new Error('No user signed in');
     }
 
-    console.log('🗑️ Starting group deletion process for:', groupId);
+    console.log('🗑️ Starting RIGID PERMANENT group deletion for:', groupId);
 
     // Check if user has permission to delete the group
     if (!this.canUserManageGroup(groupId)) {
       throw new Error('You do not have permission to delete this group');
+    }
+
+    // Check if group is already deleted
+    if (rigidGroupManager.isGroupDeleted(groupId)) {
+      throw new Error('Group is already permanently deleted');
     }
 
     try {
@@ -1859,74 +1885,22 @@ class AuthService {
         throw new Error('Group not found');
       }
 
-      console.log('🗑️ Deleting group:', group.name);
+      console.log('🗑️ PERMANENTLY deleting group:', group.name);
 
-      // 2. Delete from cloud storage first
-      try {
-        await cloudStorageService.deleteGroup(groupId);
-        console.log('☁️ Group deleted from cloud storage');
-      } catch (error) {
-        console.warn('⚠️ Failed to delete from cloud, continuing with local deletion:', error);
-      }
+      // 2. IMMEDIATELY mark as deleted to prevent any further access
+      rigidGroupManager.markGroupAsDeleted(groupId);
 
-      // 3. Delete group-related data from local storage
-      // Delete all group players
-      const groupPlayers = await storageService.getGroupPlayers(groupId);
-      for (const player of groupPlayers) {
-        try {
-          await storageService.deletePlayer(player.id);
-          // Also try to delete from cloud
-          try {
-            await cloudStorageService.deletePlayer(player.id);
-          } catch (cloudError) {
-            console.warn('⚠️ Failed to delete player from cloud:', cloudError);
-          }
-        } catch (error) {
-          console.warn('⚠️ Failed to delete player:', player.name, error);
-        }
-      }
+      // 3. Perform comprehensive cleanup using rigid group manager
+      await rigidGroupManager.performGroupCleanup(groupId);
 
-      // Delete all group matches
-      const allMatches = await storageService.getAllMatches();
-      const groupMatches = allMatches.filter(match => {
-        const allMatchPlayers = [
-          ...match.team1.players,
-          ...match.team2.players,
-          ...(match.battingTeam?.players || []),
-          ...(match.bowlingTeam?.players || [])
-        ];
-        
-        return allMatchPlayers.some(player => 
-          player.isGroupMember && 
-          player.groupIds?.includes(groupId)
-        );
-      });
-
-      for (const match of groupMatches) {
-        try {
-          await storageService.deleteMatch(match.id);
-          // Also try to delete from cloud
-          try {
-            await cloudStorageService.deleteMatch(match.id);
-          } catch (cloudError) {
-            console.warn('⚠️ Failed to delete match from cloud:', cloudError);
-          }
-        } catch (error) {
-          console.warn('⚠️ Failed to delete match:', match.id, error);
-        }
-      }
-
-      // 4. Delete the group itself from local storage
-      await storageService.deleteGroup(groupId);
-
-      // 5. Update current user's group associations
+      // 4. Update current user's group associations
       if (this.currentUser.groupIds) {
         this.currentUser.groupIds = this.currentUser.groupIds.filter(id => id !== groupId);
         await storageService.saveUserProfile(this.currentUser);
         localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
       }
 
-      // 6. Update all group members to remove this group from their associations
+      // 5. Update all group members to remove this group from their associations
       try {
         const groupMembers = await this.getGroupMembers(groupId);
         for (const member of groupMembers) {
@@ -1949,27 +1923,29 @@ class AuthService {
         console.warn('⚠️ Failed to update group members:', error);
       }
 
-      // 7. Remove group from current groups list
+      // 6. Remove group from current groups list (local state)
       this.currentGroups = this.currentGroups.filter(g => g.id !== groupId);
       this.saveGroupsToStorage();
 
-      // 8. Clear current group if it was the deleted one
+      // 7. Clear current group if it was the deleted one
       if (this.currentGroup?.id === groupId) {
         this.currentGroup = null;
         localStorage.removeItem('currentGroup');
       }
 
-      // 9. Clean up localStorage backup entries
+      // 8. Additional cleanup for localStorage backup entries
       Object.keys(localStorage).forEach(key => {
         if (key.includes(groupId)) {
           localStorage.removeItem(key);
         }
       });
 
-      console.log('✅ Group deletion completed successfully');
+      console.log('✅ RIGID PERMANENT group deletion completed successfully');
+      console.log('🚫 Group', group.name, 'is now PERMANENTLY DELETED and CANNOT be recovered');
 
     } catch (error) {
-      console.error('❌ Group deletion failed:', error);
+      console.error('❌ Rigid group deletion failed:', error);
+      // Even if cleanup fails, group remains marked as deleted
       throw new Error(`Failed to delete group: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

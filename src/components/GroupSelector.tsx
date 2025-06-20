@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Plus, ChevronDown, Crown, Settings, UserPlus, LogOut } from 'lucide-react';
 import { Group, User } from '../types/auth';
 import { authService } from '../services/authService';
+import { rigidGroupManager } from '../services/rigidGroupManager';
 
 interface GroupSelectorProps {
   currentGroup: Group | null;
@@ -34,18 +35,41 @@ export const GroupSelector: React.FC<GroupSelectorProps> = ({
       setCurrentUser(user);
       
       if (user) {
+        console.log('🔒 GroupSelector: Loading user groups with rigid management');
         await authService.loadUserGroups();
-        const groups = authService.getUserGroups();
-        setUserGroups(groups);
+        
+        // Get groups with rigid visibility filtering
+        const allGroups = authService.getUserGroups();
+        const visibleGroups = rigidGroupManager.getVisibleGroups(allGroups);
+        
+        console.log(`🔒 GroupSelector: ${allGroups.length} total groups, ${visibleGroups.length} visible groups`);
+        setUserGroups(visibleGroups);
+        
+        // Refresh visibility to ensure consistency
+        await rigidGroupManager.refreshGroupVisibility(user.id);
       }
     } catch (error) {
-      console.error('Failed to load user groups:', error);
+      console.error('Failed to load user groups with rigid management:', error);
     }
   };
 
   const handleGroupSelect = (group: Group) => {
+    console.log('🔒 GroupSelector: User selecting group:', group.name);
+    
+    // Validate group is not deleted before selection
+    if (rigidGroupManager.isGroupDeleted(group.id)) {
+      console.error('🚫 Cannot select deleted group:', group.name);
+      alert('This group has been permanently deleted and cannot be selected.');
+      return;
+    }
+    
+    // Unlock group selection to allow user-initiated change
+    rigidGroupManager.unlockGroupSelection();
+    
     onGroupSelect(group);
     setIsDropdownOpen(false);
+    
+    console.log('✅ Group selected with rigid management:', group.name);
   };
 
   const getUserRole = (group: Group): string => {

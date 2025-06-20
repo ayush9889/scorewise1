@@ -277,7 +277,7 @@ class StorageService {
       const transaction = this.db!.transaction(['matches'], 'readonly');
       const store = transaction.objectStore('matches');
       const index = store.index('isCompleted');
-      const request = index.getAll(false);
+      const request = index.getAll(IDBKeyRange.only(false));
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -316,7 +316,7 @@ class StorageService {
       const transaction = this.db!.transaction(['matches'], 'readwrite');
       const store = transaction.objectStore('matches');
       const index = store.index('isCompleted');
-      const request = index.getAll(false);
+      const request = index.getAll(IDBKeyRange.only(false));
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
@@ -731,8 +731,8 @@ class StorageService {
           // Try to store backup
           localStorage.setItem(BACKUP_KEY, backupString);
           console.log('✅ Backup created successfully');
-        } catch (error) {
-          if (error.name === 'QuotaExceededError') {
+        } catch (error: unknown) {
+          if (error instanceof Error && error.name === 'QuotaExceededError') {
             console.warn('⚠️ Storage quota exceeded, clearing old backups and retrying with minimal backup');
             
             // Clear old backup data
@@ -1138,7 +1138,7 @@ class StorageService {
         // Filter groups where user is a member or creator
         const userGroups = allGroups.filter(group => 
           group.createdBy === userId || 
-          group.members.some(member => member.userId === userId)
+          group.members.some((member: any) => member.userId === userId)
         );
         
         console.log(`✅ Found ${userGroups.length} groups for user`);
@@ -1179,7 +1179,7 @@ class StorageService {
     const inTeam2 = match.team2?.players?.some(player => player.id === userId);
     
     // Check if user scored the match
-    const isScorer = match.scoredBy === userId;
+    const isScorer = (match as any).scoredBy === userId;
     
     return inTeam1 || inTeam2 || isScorer;
   }

@@ -7,6 +7,7 @@ import { storageService } from '../services/storage';
 import { AddPlayerModal } from './AddPlayerModal';
 import { cloudStorageService } from '../services/cloudStorageService';
 import { SimpleGroupShareModal } from './SimpleGroupShareModal';
+import { rigidGroupManager } from '../services/rigidGroupManager';
 
 interface GroupManagementProps {
   onBack: () => void;
@@ -46,11 +47,29 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
 
   const loadGroupData = async () => {
     try {
+      console.log('🔒 GroupManagement: Loading group data with rigid management');
+      
+      // Ensure user groups are loaded first
+      await authService.loadUserGroups();
+      
       const group = authService.getCurrentGroup();
-      console.log('📋 Loading group data:', group?.name || 'No group');
+      console.log('🔒 Current group (rigid):', group?.name || 'No group');
+      
+      // Validate group is not deleted
+      if (group && rigidGroupManager.isGroupDeleted(group.id)) {
+        console.error('🚫 Current group is deleted, clearing selection');
+        rigidGroupManager.clearCurrentGroup();
+        setCurrentGroup(null);
+        return;
+      }
+      
       setCurrentGroup(group);
       
       if (group) {
+        console.log('🔒 Ensuring group visibility for:', group.name);
+        // Ensure group is always visible in manage section
+        rigidGroupManager.setGroupVisibility(group.id, true);
+        
         setGuestLink(authService.generateGuestLink(group.id));
         console.log('👥 Loading group players for:', group.name);
         
@@ -67,7 +86,7 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
         }
       }
     } catch (error) {
-      console.error('Failed to load group data:', error);
+      console.error('Failed to load group data with rigid management:', error);
     }
   };
 
@@ -538,16 +557,52 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       return;
     }
 
+    // FINAL WARNING - Make deletion intention absolutely clear
+    const finalConfirmation = window.confirm(
+      `🚨 FINAL WARNING 🚨
+
+This will PERMANENTLY DELETE the group "${currentGroup.name}" and ALL associated data:
+• All players and their statistics
+• All match history and scores
+• All group settings and invite links
+
+❌ THIS CANNOT BE UNDONE! ❌
+
+The group will be completely removed and CANNOT be recovered.
+
+Are you absolutely certain you want to PERMANENTLY DELETE this group?
+
+Click OK to PERMANENTLY DELETE or Cancel to abort.`
+    );
+
+    if (!finalConfirmation) {
+      console.log('🔒 Group deletion cancelled by user');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
     try {
-      console.log('🗑️ Deleting group:', currentGroup.name);
+      console.log('🗑️ PERMANENTLY deleting group:', currentGroup.name);
       
-      // Call the delete group service
+      // Check if group is already deleted
+      if (rigidGroupManager.isGroupDeleted(currentGroup.id)) {
+        throw new Error('Group is already permanently deleted');
+      }
+      
+      // Call the RIGID delete group service
       await authService.deleteGroup(currentGroup.id);
       
-      console.log('✅ Group deleted successfully');
+      console.log('✅ Group PERMANENTLY deleted successfully');
+      console.log('🚫 Group is now irreversibly deleted and cannot be recovered');
+      
+      // Show final confirmation
+      alert(`✅ Group "${currentGroup.name}" has been PERMANENTLY DELETED.
+
+🚫 This group and all its data have been completely removed and CANNOT be recovered.
+
+All players, matches, and statistics associated with this group are gone forever.`);
       
       // Close modal and navigate back
       setShowDeleteGroupModal(false);
@@ -555,8 +610,8 @@ export const GroupManagement: React.FC<GroupManagementProps> = ({ onBack }) => {
       onBack(); // Navigate back to main dashboard
       
     } catch (err) {
-      console.error('❌ Failed to delete group:', err);
-      setError(err instanceof Error ? err.message : 'Failed to delete group');
+      console.error('❌ Failed to permanently delete group:', err);
+      setError(err instanceof Error ? err.message : 'Failed to permanently delete group');
     } finally {
       setLoading(false);
     }
