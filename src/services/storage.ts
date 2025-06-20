@@ -1,5 +1,7 @@
 import { Match, Player } from '../types/cricket';
 import { User, Group, Invitation } from '../types/auth';
+// Import autoSyncService but avoid circular dependency
+let autoSyncService: any = null;
 
 const DB_NAME = 'CricketScorerDB';
 const DB_VERSION = 6; // Increment version to fix group indexing issues
@@ -10,6 +12,21 @@ class StorageService {
   private db: IDBDatabase | null = null;
   private backupTimer: NodeJS.Timeout | null = null;
 
+  // Initialize auto-sync service (lazy loading to avoid circular dependency)
+  private initAutoSync(): void {
+    try {
+      if (!autoSyncService) {
+        // Dynamically import to avoid circular dependency
+        import('./autoSyncService').then(module => {
+          autoSyncService = module.autoSyncService;
+          console.log('🔄 Auto-sync service integrated with storage');
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ Auto-sync service not available:', error);
+    }
+  }
+
   async init(): Promise<void> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -17,6 +34,8 @@ class StorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
+        // Initialize auto-sync service after storage is ready
+        this.initAutoSync();
         resolve();
       };
 
@@ -81,7 +100,13 @@ class StorageService {
       const request = store.put(player);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        // Auto-sync player to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncPlayer(player);
+        }
+        resolve();
+      };
     });
   }
 
@@ -217,7 +242,13 @@ class StorageService {
       const request = store.put(match);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        // Auto-sync match to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncMatch(match);
+        }
+        resolve();
+      };
     });
   }
 
@@ -348,7 +379,13 @@ class StorageService {
       const request = store.put(user);
 
       request.onerror = () => reject(request.error);
-      request.onsuccess = () => resolve();
+      request.onsuccess = () => {
+        // Auto-sync user to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncUser(user);
+        }
+        resolve();
+      };
     });
   }
 
@@ -409,6 +446,10 @@ class StorageService {
       };
       request.onsuccess = () => {
         console.log('✅ Storage: Group saved successfully:', group.name);
+        // Auto-sync group to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncGroup(group);
+        }
         resolve();
       };
     });
@@ -1363,6 +1404,10 @@ class StorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         console.log('✅ Match deleted from local storage');
+        // Auto-sync match deletion to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncMatchDeletion(matchId);
+        }
         resolve();
       };
     });
@@ -1381,6 +1426,10 @@ class StorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         console.log('✅ Player deleted from local storage');
+        // Auto-sync player deletion to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncPlayerDeletion(playerId);
+        }
         resolve();
       };
     });
@@ -1399,6 +1448,10 @@ class StorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         console.log('✅ Group deleted from local storage');
+        // Auto-sync group deletion to cloud
+        if (autoSyncService) {
+          autoSyncService.autoSyncGroupDeletion(groupId);
+        }
         resolve();
       };
     });

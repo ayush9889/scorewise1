@@ -8,6 +8,8 @@ import { userCloudSyncService } from './userCloudSyncService';
 import { rigidGroupManager } from './rigidGroupManager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
+// Import autoSyncService but avoid circular dependency
+let autoSyncService: any = null;
 
 class AuthService {
   private currentUser: User | null = null;
@@ -20,6 +22,22 @@ class AuthService {
   constructor() {
     console.log('🔐 AuthService initialized with Firebase Phone Auth');
     this.initializeAuthStateListener();
+    this.initAutoSync();
+  }
+
+  // Initialize auto-sync service (lazy loading to avoid circular dependency)
+  private initAutoSync(): void {
+    try {
+      if (!autoSyncService) {
+        // Dynamically import to avoid circular dependency
+        import('./autoSyncService').then(module => {
+          autoSyncService = module.autoSyncService;
+          console.log('🔄 Auto-sync service integrated with auth service');
+        });
+      }
+    } catch (error) {
+      console.warn('⚠️ Auto-sync service not available:', error);
+    }
   }
 
   // CRITICAL: Initialize Firebase Auth state listener for persistent sessions

@@ -13,6 +13,7 @@ import { authService } from '../services/authService';
 import { GroupSelector } from './GroupSelector';
 import { CloudSyncStatus } from './CloudSyncStatus';
 import { CloudMigrationStatus } from './CloudMigrationStatus';
+import AutoSyncStatus from './AutoSyncStatus';
 
 interface DashboardProps {
   onBack: () => void;
@@ -880,13 +881,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
           </div>
         </div>
 
-        {/* Cloud Sync Status */}
+        {/* Auto-Sync Status - Replacing Manual Cloud Sync */}
         {!currentUser?.isGuest && (
-          <CloudSyncStatus 
-            isOnline={connectionStatus.online}
-            firebaseWorking={connectionStatus.firebaseWorking}
-            lastSync={connectionStatus.lastSync}
-          />
+          <div className="mb-6">
+            <AutoSyncStatus />
+          </div>
         )}
 
         {/* Cloud Migration Status */}
