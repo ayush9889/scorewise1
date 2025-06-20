@@ -3,6 +3,7 @@ import { User, Group, Invitation } from '../types/auth';
 // Import sync services but avoid circular dependency
 let autoSyncService: any = null;
 let realTimeSyncService: any = null;
+let enhancedSyncService: any = null;
 
 const DB_NAME = 'CricketScorerDB';
 const DB_VERSION = 6; // Increment version to fix group indexing issues
@@ -16,11 +17,11 @@ class StorageService {
   // Initialize sync services (lazy loading to avoid circular dependency)
   private initAutoSync(): void {
     try {
-      if (!autoSyncService) {
-        // Dynamically import to avoid circular dependency
-        import('./autoSyncService').then(module => {
-          autoSyncService = module.autoSyncService;
-          console.log('🔄 Auto-sync service integrated with storage');
+      // Enhanced sync service for better reliability
+      if (!enhancedSyncService) {
+        import('./enhancedSyncService').then(module => {
+          enhancedSyncService = module.enhancedSyncService;
+          console.log('🔄 Enhanced sync service integrated with storage');
         });
       }
       
@@ -29,6 +30,14 @@ class StorageService {
         import('./realTimeSyncService').then(module => {
           realTimeSyncService = module.realTimeSyncService;
           console.log('📡 Real-time sync service integrated with storage');
+        });
+      }
+      
+      // Keep original auto-sync as fallback
+      if (!autoSyncService) {
+        import('./autoSyncService').then(module => {
+          autoSyncService = module.autoSyncService;
+          console.log('🔄 Auto-sync service available as fallback');
         });
       }
     } catch (error) {
@@ -110,8 +119,10 @@ class StorageService {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        // Auto-sync player to cloud
-        if (autoSyncService) {
+        // Enhanced sync for better reliability
+        if (enhancedSyncService) {
+          enhancedSyncService.autoSyncPlayer(player);
+        } else if (autoSyncService) {
           autoSyncService.autoSyncPlayer(player);
         }
         // Push instant real-time update
@@ -256,8 +267,10 @@ class StorageService {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        // Auto-sync match to cloud
-        if (autoSyncService) {
+        // Enhanced sync for better reliability
+        if (enhancedSyncService) {
+          enhancedSyncService.autoSyncMatch(match);
+        } else if (autoSyncService) {
           autoSyncService.autoSyncMatch(match);
         }
         // Push instant real-time update
@@ -397,8 +410,10 @@ class StorageService {
 
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
-        // Auto-sync user to cloud
-        if (autoSyncService) {
+        // Enhanced sync for better reliability
+        if (enhancedSyncService) {
+          enhancedSyncService.autoSyncUser(user);
+        } else if (autoSyncService) {
           autoSyncService.autoSyncUser(user);
         }
         // Push instant real-time update
@@ -467,8 +482,10 @@ class StorageService {
       };
       request.onsuccess = () => {
         console.log('✅ Storage: Group saved successfully:', group.name);
-        // Auto-sync group to cloud
-        if (autoSyncService) {
+        // Enhanced sync for better reliability
+        if (enhancedSyncService) {
+          enhancedSyncService.autoSyncGroup(group);
+        } else if (autoSyncService) {
           autoSyncService.autoSyncGroup(group);
         }
         // Push instant real-time update

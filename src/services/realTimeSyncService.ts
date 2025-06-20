@@ -138,14 +138,19 @@ class RealTimeSyncService {
   }
 
   /**
-   * Push an update to all other devices instantly
+   * Push an update to all other devices instantly with retry logic
    */
   async pushInstantUpdate(
     type: RealTimeUpdate['type'],
     entity: RealTimeUpdate['entity'],
-    data: any
+    data: any,
+    retryCount: number = 0
   ): Promise<void> {
-    if (!this.isEnabled || !this.currentUserId) return;
+    if (!this.isEnabled || !this.currentUserId) {
+      console.log('📡 Real-time sync not enabled, queuing update for later');
+      this.queueFailedUpdate(type, entity, data);
+      return;
+    }
 
     const update: RealTimeUpdate = {
       type,
@@ -170,15 +175,76 @@ class RealTimeSyncService {
       batch.set(updateDoc, {
         ...update,
         createdAt: serverTimestamp(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // Expire after 24 hours
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // Expire after 24 hours
+        retryCount
       });
 
       await batch.commit();
-      console.log(`📡 Pushed instant update: ${entity} ${type}`);
+      console.log(`📡 Pushed instant update: ${entity} ${type} (attempt ${retryCount + 1})`);
+      
+      // Process any queued failed updates
+      this.processFailedUpdates();
 
     } catch (error) {
       console.error('❌ Failed to push instant update:', error);
+      
+      // Retry with exponential backoff
+      if (retryCount < 3) {
+        const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
+        console.log(`📡 Retrying instant update in ${delay}ms...`);
+        
+        setTimeout(() => {
+          this.pushInstantUpdate(type, entity, data, retryCount + 1);
+        }, delay);
+      } else {
+        console.error('📡 Giving up on instant update after 3 retries, queuing for fallback');
+        this.queueFailedUpdate(type, entity, data);
+      }
     }
+  }
+
+  // Queue for failed updates to retry later
+  private failedUpdates: Array<{
+    type: RealTimeUpdate['type'];
+    entity: RealTimeUpdate['entity'];
+    data: any;
+    timestamp: number;
+  }> = [];
+
+  private queueFailedUpdate(
+    type: RealTimeUpdate['type'],
+    entity: RealTimeUpdate['entity'],
+    data: any
+  ): void {
+    this.failedUpdates.push({
+      type,
+      entity,
+      data,
+      timestamp: Date.now()
+    });
+    
+    // Keep only last 20 failed updates to prevent memory issues
+    if (this.failedUpdates.length > 20) {
+      this.failedUpdates = this.failedUpdates.slice(-20);
+    }
+    
+    console.log(`📡 Queued failed update: ${type} ${entity} (${this.failedUpdates.length} total)`);
+  }
+
+  private processFailedUpdates(): void {
+    if (this.failedUpdates.length === 0) return;
+    
+    console.log(`📡 Processing ${this.failedUpdates.length} failed updates...`);
+    
+    const updates = [...this.failedUpdates];
+    this.failedUpdates = [];
+    
+    updates.forEach((update, index) => {
+      // Small delay between updates to prevent overwhelming
+      setTimeout(() => {
+        this.pushInstantUpdate(update.type, update.entity, update.data);
+      }, index * 200);
+    });
   }
 
   // REAL-TIME LISTENERS

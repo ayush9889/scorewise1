@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { autoSyncService } from '../services/autoSyncService';
+import { enhancedSyncService } from '../services/enhancedSyncService';
 import { realTimeSyncService } from '../services/realTimeSyncService';
 
 interface SyncStatus {
@@ -10,6 +11,9 @@ interface SyncStatus {
   totalOperations: number;
   syncProgress: number;
   errors: string[];
+  lastError: string | null;
+  consecutiveFailures: number;
+  isBackgroundSyncing: boolean;
 }
 
 interface RealTimeStatus {
@@ -28,7 +32,10 @@ const AutoSyncStatus: React.FC = () => {
     pendingOperations: 0,
     totalOperations: 0,
     syncProgress: 0,
-    errors: []
+    errors: [],
+    lastError: null,
+    consecutiveFailures: 0,
+    isBackgroundSyncing: false
   });
 
   const [realTimeStatus, setRealTimeStatus] = useState<RealTimeStatus>({
@@ -43,8 +50,8 @@ const AutoSyncStatus: React.FC = () => {
   const [lastRealTimeUpdate, setLastRealTimeUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
-    // Subscribe to sync status changes
-    const unsubscribeAutoSync = autoSyncService.onSyncStatusChange((status) => {
+    // Subscribe to enhanced sync status changes (primary)
+    const unsubscribeEnhancedSync = enhancedSyncService.onSyncStatusChange((status) => {
       setSyncStatus(status);
     });
 
@@ -54,8 +61,21 @@ const AutoSyncStatus: React.FC = () => {
       console.log('📡 Real-time update received:', updateData);
     });
 
+    // Fallback to auto-sync if enhanced sync fails
+    const unsubscribeAutoSync = autoSyncService.onSyncStatusChange((status) => {
+      // Only use if enhanced sync is not working
+      if (!enhancedSyncService.getSyncStatus().isEnabled) {
+        setSyncStatus(status);
+      }
+    });
+
     // Get initial statuses
-    setSyncStatus(autoSyncService.getSyncStatus());
+    try {
+      setSyncStatus(enhancedSyncService.getSyncStatus());
+    } catch (error) {
+      console.warn('Enhanced sync not available, falling back to auto-sync');
+      setSyncStatus(autoSyncService.getSyncStatus());
+    }
     setRealTimeStatus(realTimeSyncService.getConnectionStatus());
 
     // Update real-time status every 5 seconds
@@ -64,6 +84,7 @@ const AutoSyncStatus: React.FC = () => {
     }, 5000);
 
     return () => {
+      unsubscribeEnhancedSync();
       unsubscribeAutoSync();
       unsubscribeRealTime();
       clearInterval(statusInterval);
@@ -99,7 +120,9 @@ const AutoSyncStatus: React.FC = () => {
   const getSyncStatusText = (): string => {
     if (!syncStatus.isEnabled) return 'Auto-sync disabled';
     if (!syncStatus.isOnline) return 'Offline - queued for sync';
+    if (syncStatus.isBackgroundSyncing) return 'Background sync in progress...';
     if (syncStatus.pendingOperations > 0) return `Syncing ${syncStatus.pendingOperations} items...`;
+    if (syncStatus.consecutiveFailures > 3) return `Sync failing (${syncStatus.consecutiveFailures} failures)`;
     if (syncStatus.errors.length > 0) return 'Sync errors detected';
     if (realTimeStatus.listening) return `Real-time sync active (${realTimeStatus.listenersCount} listeners)`;
     return 'All data synced';
@@ -108,21 +131,53 @@ const AutoSyncStatus: React.FC = () => {
   const getSyncStatusColor = (): string => {
     if (!syncStatus.isEnabled) return 'text-gray-500';
     if (!syncStatus.isOnline) return 'text-yellow-500';
-    if (syncStatus.pendingOperations > 0) return 'text-blue-500';
+    if (syncStatus.consecutiveFailures > 3) return 'text-red-600';
     if (syncStatus.errors.length > 0) return 'text-red-500';
+    if (syncStatus.isBackgroundSyncing) return 'text-blue-600';
+    if (syncStatus.pendingOperations > 0) return 'text-blue-500';
     return 'text-green-500';
   };
 
   const handleToggleAutoSync = () => {
-    if (syncStatus.isEnabled) {
-      autoSyncService.disableAutoSync();
-    } else {
-      autoSyncService.enableAutoSync();
+    try {
+      if (syncStatus.isEnabled) {
+        enhancedSyncService.disableAutoSync();
+      } else {
+        enhancedSyncService.enableAutoSync();
+      }
+    } catch (error) {
+      // Fallback to auto-sync service
+      if (syncStatus.isEnabled) {
+        autoSyncService.disableAutoSync();
+      } else {
+        autoSyncService.enableAutoSync();
+      }
     }
   };
 
   const handleForceSync = () => {
-    autoSyncService.forceSyncNow();
+    try {
+      enhancedSyncService.forceSyncNow();
+    } catch (error) {
+      // Fallback to auto-sync service
+      autoSyncService.forceSyncNow();
+    }
+  };
+
+  const handleClearErrors = () => {
+    try {
+      enhancedSyncService.clearSyncErrors();
+    } catch (error) {
+      console.warn('Enhanced sync not available for error clearing');
+    }
+  };
+
+  const handleResetSync = () => {
+    try {
+      enhancedSyncService.resetSyncState();
+    } catch (error) {
+      console.warn('Enhanced sync not available for reset');
+    }
   };
 
   return (
@@ -199,14 +254,28 @@ const AutoSyncStatus: React.FC = () => {
             </div>
             
             <div>
+              <span className="text-gray-500">Background:</span>
+              <span className={syncStatus.isBackgroundSyncing ? 'text-blue-500' : 'text-gray-500'}>
+                {syncStatus.isBackgroundSyncing ? '🔄 Active' : '⏸️ Idle'}
+              </span>
+            </div>
+            
+            <div>
               <span className="text-gray-500">Listeners:</span>
               <span className="font-medium">{realTimeStatus.listenersCount}</span>
             </div>
             
             <div>
+              <span className="text-gray-500">Failures:</span>
+              <span className={syncStatus.consecutiveFailures > 0 ? 'text-red-500 font-medium' : 'text-green-500'}>
+                {syncStatus.consecutiveFailures > 0 ? syncStatus.consecutiveFailures : '0'}
+              </span>
+            </div>
+            
+            <div>
               <span className="text-gray-500">Auto-sync:</span>
               <span className={syncStatus.isEnabled ? 'text-green-500' : 'text-gray-500'}>
-                {syncStatus.isEnabled ? '✅ Enabled' : '⏸️ Disabled'}
+                {syncStatus.isEnabled ? '✅ Enhanced' : '⏸️ Disabled'}
               </span>
             </div>
             
@@ -219,11 +288,32 @@ const AutoSyncStatus: React.FC = () => {
           </div>
 
           {/* Error Messages */}
-          {syncStatus.errors.length > 0 && (
+          {(syncStatus.errors.length > 0 || syncStatus.consecutiveFailures > 0) && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-              <div className="text-red-800 font-medium text-sm mb-2">
-                Sync Errors:
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-red-800 font-medium text-sm">
+                  Sync Issues Detected
+                </div>
+                <button
+                  onClick={handleClearErrors}
+                  className="text-xs text-red-600 hover:text-red-800"
+                >
+                  Clear Errors
+                </button>
               </div>
+              
+              {syncStatus.consecutiveFailures > 0 && (
+                <div className="text-red-700 text-xs mb-2">
+                  • {syncStatus.consecutiveFailures} consecutive sync failures
+                </div>
+              )}
+              
+              {syncStatus.lastError && (
+                <div className="text-red-700 text-xs mb-2">
+                  • Latest error: {syncStatus.lastError}
+                </div>
+              )}
+              
               <div className="space-y-1">
                 {syncStatus.errors.map((error, index) => (
                   <div key={index} className="text-red-700 text-xs">
@@ -231,6 +321,17 @@ const AutoSyncStatus: React.FC = () => {
                   </div>
                 ))}
               </div>
+              
+              {syncStatus.consecutiveFailures > 3 && (
+                <div className="mt-2">
+                  <button
+                    onClick={handleResetSync}
+                    className="px-2 py-1 bg-red-600 text-white rounded text-xs hover:bg-red-700"
+                  >
+                    Reset Sync State
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

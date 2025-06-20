@@ -10,6 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
 // Import sync services but avoid circular dependency
 let autoSyncService: any = null;
+let enhancedSyncService: any = null;
 let realTimeSyncService: any = null;
 
 class AuthService {
@@ -29,11 +30,11 @@ class AuthService {
   // Initialize sync services (lazy loading to avoid circular dependency)
   private initAutoSync(): void {
     try {
-      if (!autoSyncService) {
-        // Dynamically import to avoid circular dependency
-        import('./autoSyncService').then(module => {
-          autoSyncService = module.autoSyncService;
-          console.log('🔄 Auto-sync service integrated with auth service');
+      // Enhanced sync service for better reliability
+      if (!enhancedSyncService) {
+        import('./enhancedSyncService').then(module => {
+          enhancedSyncService = module.enhancedSyncService;
+          console.log('🔄 Enhanced sync service integrated with auth service');
         });
       }
       
@@ -42,6 +43,14 @@ class AuthService {
         import('./realTimeSyncService').then(module => {
           realTimeSyncService = module.realTimeSyncService;
           console.log('📡 Real-time sync service integrated with auth service');
+        });
+      }
+      
+      // Keep auto-sync as fallback
+      if (!autoSyncService) {
+        import('./autoSyncService').then(module => {
+          autoSyncService = module.autoSyncService;
+          console.log('🔄 Auto-sync service available as fallback');
         });
       }
     } catch (error) {
@@ -1509,6 +1518,11 @@ class AuthService {
     // Set current group for real-time sync
     if (realTimeSyncService) {
       realTimeSyncService.setCurrentGroup(group.id);
+    }
+    
+    // Queue comprehensive sync with enhanced sync service
+    if (enhancedSyncService) {
+      enhancedSyncService.queueComprehensiveSync();
     }
     
     // Also update the traditional storage for backward compatibility
