@@ -16,6 +16,84 @@ import {
 import { User, Group, Match, Player } from '../types/cricket';
 import { storageService } from './storage';
 
+// Quota error handling utilities
+const clearFirebaseCache = (): void => {
+  try {
+    console.log('🧹 Clearing Firebase cache due to quota error...');
+    const keysToRemove: string[] = [];
+    
+    // Find all Firebase-related keys
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.includes('firestore') ||
+        key.includes('firebase') ||
+        key.includes('mutation') ||
+        key.includes('pending') ||
+        key.includes('_4255_') ||
+        key.includes('_1026_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    
+    // Remove all Firebase cache keys
+    keysToRemove.forEach(key => {
+      try {
+        localStorage.removeItem(key);
+        console.log(`🗑️ Removed Firebase cache key: ${key.substring(0, 50)}...`);
+      } catch (error) {
+        console.warn(`⚠️ Failed to remove key ${key}:`, error);
+      }
+    });
+    
+    console.log(`✅ Cleared ${keysToRemove.length} Firebase cache entries`);
+  } catch (error) {
+    console.error('❌ Failed to clear Firebase cache:', error);
+  }
+};
+
+const handleQuotaExceededError = async (error: any, operation: string): Promise<void> => {
+  console.error(`🚨 Quota exceeded during ${operation}:`, error);
+  
+  // Clear Firebase cache
+  clearFirebaseCache();
+  
+  // Also clear any old backup data
+  try {
+    localStorage.removeItem('cricket_scorer_backup');
+    localStorage.removeItem('cricket_scorer_backup_history');
+  } catch (cleanupError) {
+    console.warn('⚠️ Failed to clear backup data:', cleanupError);
+  }
+  
+  // Show user-friendly message
+  const message = `Storage quota exceeded during ${operation}. Firebase cache has been cleared. Please refresh the page and try again.`;
+  console.warn('⚠️', message);
+  
+  // Dispatch event for UI handling
+  window.dispatchEvent(new CustomEvent('quotaExceeded', {
+    detail: { operation, message, cleared: true }
+  }));
+};
+
+const withQuotaErrorHandling = async <T>(
+  operation: () => Promise<T>,
+  operationName: string
+): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error: any) {
+    if (error?.message?.includes('QuotaExceededError') || 
+        error?.message?.includes('exceeded the quota') ||
+        error?.code === 'quota-exceeded') {
+      await handleQuotaExceededError(error, operationName);
+      throw new Error(`Storage quota exceeded during ${operationName}. Please refresh the page and try again.`);
+    }
+    throw error;
+  }
+};
+
 const USERS_COLLECTION = 'users';
 const USER_GROUPS_COLLECTION = 'user_groups';
 const USER_MATCHES_COLLECTION = 'user_matches';
@@ -59,20 +137,27 @@ class UserCloudSyncService {
     const userIdentifier = user.email || user.phone;
     if (!userIdentifier) return;
     
-    // Clean user data to remove undefined values
-    const cleanUserData = {
-      ...user,
-      name: user.name || 'Unknown',
-      email: user.email || null,
-      phone: user.phone || null,
-      lastUpdated: serverTimestamp(),
-      syncVersion: Date.now()
-    };
-    
-    const userRef = doc(db, USERS_COLLECTION, userIdentifier);
-    await setDoc(userRef, cleanUserData, { merge: true });
-    
-    console.log('✅ User profile saved to cloud:', userIdentifier);
+    return withQuotaErrorHandling(async () => {
+      // Clear Firebase cache before large operations
+      if (Math.random() < 0.1) { // 10% chance to proactively clear cache
+        clearFirebaseCache();
+      }
+      
+      // Clean user data to remove undefined values
+      const cleanUserData = {
+        ...user,
+        name: user.name || 'Unknown',
+        email: user.email || null,
+        phone: user.phone || null,
+        lastUpdated: serverTimestamp(),
+        syncVersion: Date.now()
+      };
+      
+      const userRef = doc(db, USERS_COLLECTION, userIdentifier);
+      await setDoc(userRef, cleanUserData, { merge: true });
+      
+      console.log('✅ User profile saved to cloud:', userIdentifier);
+    }, 'saveUserToCloud');
   }
 
   // Sync all user data to cloud (groups, matches, players)
@@ -83,8 +168,11 @@ class UserCloudSyncService {
       return;
     }
 
-    try {
+    return withQuotaErrorHandling(async () => {
       console.log('🔄 Syncing user data to cloud...');
+      
+      // Clear Firebase cache proactively before large operations
+      clearFirebaseCache();
       
       // Get local data
       const [localGroups, localMatches, localPlayers] = await Promise.all([
@@ -100,8 +188,8 @@ class UserCloudSyncService {
       
       const userMatches = localMatches.filter(match => {
         const allPlayers = [
-          ...match.team1.players,
-          ...match.team2.players,
+          ...(match.team1?.players || []),
+          ...(match.team2?.players || []),
           ...(match.battingTeam?.players || []),
           ...(match.bowlingTeam?.players || [])
         ];
@@ -116,62 +204,98 @@ class UserCloudSyncService {
         userGroups.some(group => player.groupIds?.includes(group.id))
       );
 
-      // Use batch writes for efficiency
-      const batch = writeBatch(db);
-      const userIdentifier = this.currentUser.email || this.currentUser.phone;
-      const timestamp = serverTimestamp();
+      // Split into smaller chunks to avoid quota issues
+      const chunkSize = 10;
+      const allItems = [
+        ...userGroups.map(g => ({ type: 'group', data: g })),
+        ...userMatches.map(m => ({ type: 'match', data: m })),
+        ...userPlayers.map(p => ({ type: 'player', data: p }))
+      ];
 
-      // Sync groups
-      for (const group of userGroups) {
-        const groupRef = doc(db, USER_GROUPS_COLLECTION, `${userIdentifier}_${group.id}`);
-        batch.set(groupRef, {
-          userIdentifier,
-          groupData: group,
-          lastUpdated: timestamp,
-          syncVersion: Date.now()
-        }, { merge: true });
-      }
+      // Process in chunks
+      for (let i = 0; i < allItems.length; i += chunkSize) {
+        const chunk = allItems.slice(i, i + chunkSize);
+        
+        try {
+          const batch = writeBatch(db);
+          const timestamp = serverTimestamp();
 
-      // Sync matches
-      for (const match of userMatches) {
-        const matchRef = doc(db, USER_MATCHES_COLLECTION, `${userIdentifier}_${match.id}`);
-        batch.set(matchRef, {
-          userIdentifier,
-          matchData: match,
-          lastUpdated: timestamp,
-          syncVersion: Date.now()
-        }, { merge: true });
-      }
+          for (const item of chunk) {
+            let ref;
+            let data;
+            
+            switch (item.type) {
+              case 'group':
+                ref = doc(db, USER_GROUPS_COLLECTION, `${userIdentifier}_${item.data.id}`);
+                data = {
+                  userIdentifier,
+                  groupData: item.data,
+                  lastUpdated: timestamp,
+                  syncVersion: Date.now()
+                };
+                break;
+              case 'match':
+                ref = doc(db, USER_MATCHES_COLLECTION, `${userIdentifier}_${item.data.id}`);
+                data = {
+                  userIdentifier,
+                  matchData: item.data,
+                  lastUpdated: timestamp,
+                  syncVersion: Date.now()
+                };
+                break;
+              case 'player':
+                ref = doc(db, USER_PLAYERS_COLLECTION, `${userIdentifier}_${item.data.id}`);
+                data = {
+                  userIdentifier,
+                  playerData: item.data,
+                  lastUpdated: timestamp,
+                  syncVersion: Date.now()
+                };
+                break;
+            }
+            
+            if (ref && data) {
+              batch.set(ref, data, { merge: true });
+            }
+          }
 
-      // Sync players
-      for (const player of userPlayers) {
-        const playerRef = doc(db, USER_PLAYERS_COLLECTION, `${userIdentifier}_${player.id}`);
-        batch.set(playerRef, {
-          userIdentifier,
-          playerData: player,
-          lastUpdated: timestamp,
-          syncVersion: Date.now()
-        }, { merge: true });
-      }
-
-      // Update sync metadata
-      const metadataRef = doc(db, SYNC_METADATA_COLLECTION, userIdentifier);
-      batch.set(metadataRef, {
-        userIdentifier,
-        lastSyncTime: timestamp,
-        deviceInfo: {
-          userAgent: navigator.userAgent,
-          timestamp: Date.now()
-        },
-        dataCount: {
-          groups: userGroups.length,
-          matches: userMatches.length,
-          players: userPlayers.length
+          // Commit chunk
+          await batch.commit();
+          console.log(`✅ Synced chunk ${Math.floor(i/chunkSize) + 1}/${Math.ceil(allItems.length/chunkSize)}`);
+          
+          // Small delay between chunks to avoid overwhelming Firebase
+          if (i + chunkSize < allItems.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+          
+        } catch (chunkError: any) {
+          if (chunkError?.message?.includes('QuotaExceededError')) {
+            clearFirebaseCache();
+            throw chunkError; // Re-throw to be handled by outer withQuotaErrorHandling
+          }
+          console.warn(`⚠️ Failed to sync chunk ${Math.floor(i/chunkSize) + 1}:`, chunkError);
         }
-      });
+      }
 
-      // Commit all changes
-      await batch.commit();
+      // Update sync metadata separately
+      try {
+        const metadataRef = doc(db, SYNC_METADATA_COLLECTION, userIdentifier);
+        await setDoc(metadataRef, {
+          userIdentifier,
+          lastSyncTime: serverTimestamp(),
+          deviceInfo: {
+            userAgent: navigator.userAgent,
+            timestamp: Date.now()
+          },
+          dataCount: {
+            groups: userGroups.length,
+            matches: userMatches.length,
+            players: userPlayers.length
+          }
+        }, { merge: true });
+      } catch (metadataError) {
+        console.warn('⚠️ Failed to update sync metadata:', metadataError);
+      }
       
       console.log('✅ User data synced to cloud:', {
         groups: userGroups.length,
@@ -179,10 +303,7 @@ class UserCloudSyncService {
         players: userPlayers.length
       });
 
-    } catch (error) {
-      console.error('❌ Failed to sync user data to cloud:', error);
-      throw error;
-    }
+    }, 'syncUserDataToCloud');
   }
 
   // Load user data from cloud and merge with local
@@ -193,7 +314,7 @@ class UserCloudSyncService {
       return;
     }
 
-    try {
+    return withQuotaErrorHandling(async () => {
       console.log('🔄 Loading user data from cloud...');
       const userIdentifier = this.currentUser.email || this.currentUser.phone;
 
@@ -262,10 +383,7 @@ class UserCloudSyncService {
         }
       }));
 
-    } catch (error) {
-      console.error('❌ Failed to load user data from cloud:', error);
-      throw error;
-    }
+    }, 'loadUserDataFromCloud');
   }
 
   // Merge local and cloud data arrays
@@ -350,8 +468,11 @@ class UserCloudSyncService {
 
   // Perform full bidirectional sync
   async performFullSync(): Promise<void> {
-    try {
+    return withQuotaErrorHandling(async () => {
       console.log('🔄 Performing full bidirectional sync...');
+      
+      // Clear Firebase cache before full sync
+      clearFirebaseCache();
       
       // First, upload local changes to cloud
       await this.syncUserDataToCloud();
@@ -360,10 +481,7 @@ class UserCloudSyncService {
       await this.loadUserDataFromCloud();
       
       console.log('✅ Full sync completed successfully');
-    } catch (error) {
-      console.error('❌ Full sync failed:', error);
-      throw error;
-    }
+    }, 'performFullSync');
   }
 
   // Stop all sync subscriptions
@@ -416,8 +534,18 @@ class UserCloudSyncService {
 
       await this.performFullSync();
       return { success: true, message: 'Sync completed successfully' };
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Manual sync failed:', error);
+      
+      // Handle quota exceeded errors specifically
+      if (error?.message?.includes('Storage quota exceeded') || 
+          error?.message?.includes('QuotaExceededError')) {
+        return { 
+          success: false, 
+          message: 'Storage quota exceeded. Firebase cache has been cleared. Please refresh the page and try again.' 
+        };
+      }
+      
       return { success: false, message: `Sync failed: ${error.message}` };
     }
   }

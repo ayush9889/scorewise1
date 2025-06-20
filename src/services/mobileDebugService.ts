@@ -279,8 +279,8 @@ export class MobileDebugService {
           console.error('🚨 Storage Quota Exceeded Error Detected');
           console.log('🔧 Auto-fixing: Clearing Firebase cache and storage');
           
-          // Clear Firebase-related storage
-          this.clearFirebaseStorage();
+                     // Clear Firebase-related storage
+           MobileDebugService.clearFirebaseStorage();
           
           event.preventDefault();
           return true;
@@ -294,8 +294,8 @@ export class MobileDebugService {
           console.error('🚨 Storage Quota Promise Rejection');
           console.log('🔧 Auto-fixing quota exceeded promise rejection');
           
-          // Clear Firebase storage
-          this.clearFirebaseStorage();
+                     // Clear Firebase storage
+           MobileDebugService.clearFirebaseStorage();
           
           event.preventDefault();
         }
@@ -309,7 +309,7 @@ export class MobileDebugService {
   }
 
   // Clear Firebase-related storage to free up quota
-  private static clearFirebaseStorage(): void {
+  static clearFirebaseStorage(): void {
     try {
       console.log('🧹 Clearing Firebase storage to resolve quota issue...');
       
@@ -393,4 +393,22 @@ export class MobileDebugService {
 (window as any).mobileDebug = MobileDebugService.runMobileDiagnostics;
 (window as any).mobileFix = MobileDebugService.quickMobileFix;
 (window as any).mobileRecovery = MobileDebugService.emergencyMobileRecovery;
-(window as any).clearFirebaseCache = () => MobileDebugService.clearFirebaseStorage(); 
+(window as any).clearFirebaseCache = MobileDebugService.clearFirebaseStorage;
+
+// Add command test function
+(window as any).testMobileCommands = () => {
+  console.log('🧪 Testing mobile debug commands...');
+  console.log('✅ mobileDebug() - Run mobile diagnostics');
+  console.log('✅ mobileFix() - Quick mobile fix');
+  console.log('✅ mobileRecovery() - Emergency recovery (clears all data)');
+  console.log('✅ clearFirebaseCache() - Clear Firebase storage cache');
+  console.log('🎉 All commands are available! Try them in the console.');
+};
+
+// Log initial setup
+console.log('🔧 Mobile debug commands initialized:');
+console.log('• mobileDebug() - Mobile diagnostics');
+console.log('• mobileFix() - Quick fix');
+console.log('• mobileRecovery() - Emergency recovery');
+console.log('• clearFirebaseCache() - Clear Firebase cache');
+console.log('• testMobileCommands() - Test all commands'); 

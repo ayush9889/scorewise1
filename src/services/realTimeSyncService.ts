@@ -385,27 +385,75 @@ class RealTimeSyncService {
   private startGroupMatchesListener(): void {
     if (!this.currentGroupId) return;
 
-    const matchesRef = collection(db, 'matches');
-    const q = query(
-      matchesRef,
-      where('groupId', '==', this.currentGroupId),
-      orderBy('startTime', 'desc')
-    );
+    try {
+      const matchesRef = collection(db, 'matches');
+      const q = query(
+        matchesRef,
+        where('groupId', '==', this.currentGroupId),
+        orderBy('startTime', 'desc')
+      );
 
-    const unsubscribe = onSnapshot(q,
-      (snapshot: QuerySnapshot) => {
-        const matches: Match[] = [];
-        snapshot.forEach((doc) => {
-          matches.push({ id: doc.id, ...doc.data() } as Match);
-        });
-        this.handleGroupMatchesUpdate(matches);
-      },
-      (error) => {
-        console.error('❌ Group matches listener error:', error);
-      }
-    );
+      const unsubscribe = onSnapshot(q,
+        (snapshot: QuerySnapshot) => {
+          const matches: Match[] = [];
+          snapshot.forEach((doc) => {
+            matches.push({ id: doc.id, ...doc.data() } as Match);
+          });
+          this.handleGroupMatchesUpdate(matches);
+        },
+        (error) => {
+          console.error('❌ Group matches listener error:', error);
+          console.warn('🔧 Firebase index required. Create composite index for "matches" collection with fields: groupId (asc), startTime (desc)');
+          console.warn('🔗 Create index here: https://console.firebase.google.com/v1/r/project/scorewise-e5b59/firestore/indexes');
+          
+          // Fallback: Use simple query without orderBy to avoid index requirement
+          console.log('📋 Using fallback query without sorting...');
+          this.startGroupMatchesListenerFallback();
+        }
+      );
 
-    this.addListener('group_matches', unsubscribe, 'MATCH', this.handleGroupMatchesUpdate.bind(this));
+      this.addListener('group_matches', unsubscribe, 'MATCH', this.handleGroupMatchesUpdate.bind(this));
+    } catch (error) {
+      console.error('❌ Failed to start group matches listener:', error);
+      this.startGroupMatchesListenerFallback();
+    }
+  }
+
+  private startGroupMatchesListenerFallback(): void {
+    if (!this.currentGroupId) return;
+
+    console.log('📋 Starting fallback group matches listener (no sorting)...');
+    
+    try {
+      const matchesRef = collection(db, 'matches');
+      // Simplified query - only filter by groupId, no orderBy
+      const q = query(
+        matchesRef,
+        where('groupId', '==', this.currentGroupId)
+      );
+
+      const unsubscribe = onSnapshot(q,
+        (snapshot: QuerySnapshot) => {
+          const matches: Match[] = [];
+          snapshot.forEach((doc) => {
+            matches.push({ id: doc.id, ...doc.data() } as Match);
+          });
+          
+          // Sort locally to maintain desired order
+          matches.sort((a, b) => (b.startTime || 0) - (a.startTime || 0));
+          
+          this.handleGroupMatchesUpdate(matches);
+        },
+        (error) => {
+          console.error('❌ Fallback group matches listener error:', error);
+        }
+      );
+
+      this.addListener('group_matches_fallback', unsubscribe, 'MATCH', this.handleGroupMatchesUpdate.bind(this));
+      console.log('✅ Fallback group matches listener started successfully');
+    } catch (error) {
+      console.error('❌ Failed to start fallback group matches listener:', error);
+    }
   }
 
   // UPDATE HANDLERS
