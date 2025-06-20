@@ -608,12 +608,6 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
       console.log(`➕ Added ${newBowler.name} to bowling team`);
     }
     
-    // ALSO add to allPlayers list if not already there for future selections
-    if (!allPlayers.find(p => p.id === newBowler.id)) {
-      setAllPlayers(prev => [...prev, newBowler]);
-      console.log(`📋 Added ${newBowler.name} to global player list for future selections`);
-    }
-    
     // AUTO-CLOSE FIRST: Close all modals immediately to prevent double selection
     setShowBowlerSelector(false);
     setNeedsBowlerChange(false);
@@ -669,12 +663,6 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
     if (!updatedMatch.battingTeam.players.find(p => p.id === newBatsman.id)) {
       updatedMatch.battingTeam.players.push(newBatsman);
       console.log(`🏏 Added ${newBatsman.name} to batting team as new batsman`);
-    }
-    
-    // ALSO add to allPlayers list if not already there for future selections
-    if (!allPlayers.find(p => p.id === newBatsman.id)) {
-      setAllPlayers(prev => [...prev, newBatsman]);
-      console.log(`📋 Added ${newBatsman.name} to global player list for future selections`);
     }
     
     setMatch(updatedMatch);
@@ -756,61 +744,23 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
 
   const getAvailableBowlers = (): Player[] => {
     const nextOver = match.battingTeam.overs + 1;
+    const availableBowlers = CricketEngine.getAvailableBowlers(match, nextOver);
     
     console.log(`🏏 GETTING AVAILABLE BOWLERS FOR SELECTOR:`);
     console.log(`Next over: ${nextOver}`);
     console.log(`Current bowler: ${match.currentBowler?.name || 'None'}`);
     console.log(`Previous bowler: ${match.previousBowler?.name || 'None'}`);
     console.log(`All bowling team players:`, match.bowlingTeam.players.map(b => b.name));
+    console.log(`Available bowlers:`, availableBowlers.map(b => b.name));
     
-    // ENHANCED: Get ALL players in the match (both teams) for bowling selection
-    // Players can be moved between teams or added mid-match
-    const allMatchPlayers = [
-      ...match.battingTeam.players,
-      ...match.bowlingTeam.players,
-      ...allPlayers // Include all loaded players for comprehensive options
-    ];
-    
-    // Remove duplicates by ID
-    const uniqueMatchPlayers = allMatchPlayers.filter((player, index, array) =>
-      array.findIndex(p => p.id === player.id) === index
-    );
-    
-    console.log(`🎯 ALL UNIQUE MATCH PLAYERS:`, uniqueMatchPlayers.map(p => p.name));
-    
-    // Apply cricket rules: exclude current batsmen and previous over bowler
-    let availableBowlers = uniqueMatchPlayers.filter(bowler => 
-      bowler.id !== match.currentStriker?.id &&
-      bowler.id !== match.currentNonStriker?.id
-    );
-    
-    // Exclude previous over bowler (cricket rule)
-    if (nextOver > 1) {
-      const previousOver = nextOver - 1;
-      const previousOverBalls = match.balls.filter(b => b.overNumber === previousOver);
-      
-      if (previousOverBalls.length > 0) {
-        const previousBowlerId = previousOverBalls[0]?.bowler?.id;
-        const previousBowlerName = previousOverBalls[0]?.bowler?.name;
-        
-        if (previousBowlerId) {
-          availableBowlers = availableBowlers.filter(bowler => bowler.id !== previousBowlerId);
-          console.log(`🚫 Excluding previous bowler: ${previousBowlerName}`);
-        }
-      }
-    }
-    
-    console.log(`✅ FINAL AVAILABLE BOWLERS:`, availableBowlers.map(b => b.name));
-    console.log(`🎯 TOTAL OPTIONS: ${availableBowlers.length} bowlers available`);
-    
-    // Ensure we have at least the bowling team players as fallback
+    // FALLBACK: If no bowlers available, show all bowling team players except current batsmen
     if (availableBowlers.length === 0) {
-      console.log(`🚨 NO BOWLERS AVAILABLE - USING BOWLING TEAM AS FALLBACK`);
+      console.log(`🚨 NO AVAILABLE BOWLERS - USING FALLBACK LOGIC`);
       const fallbackBowlers = match.bowlingTeam.players.filter(bowler => 
         bowler.id !== match.currentStriker?.id &&
         bowler.id !== match.currentNonStriker?.id
       );
-      console.log(`🔧 FALLBACK BOWLERS:`, fallbackBowlers.map(b => b.name));
+      console.log(`✅ FALLBACK BOWLERS:`, fallbackBowlers.map(b => b.name));
       return fallbackBowlers;
     }
     
@@ -818,32 +768,10 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
   };
 
   const getAvailableBatsmen = (): Player[] => {
-    console.log(`🏏 GETTING AVAILABLE BATSMEN:`);
-    console.log(`Current batsmen: ${match.currentStriker?.name} & ${match.currentNonStriker?.name}`);
-    console.log(`Batting team players:`, match.battingTeam.players.map(p => p.name));
-    
-    // ENHANCED: Get ALL players in the match for batting selection
-    const allMatchPlayers = [
-      ...match.battingTeam.players,
-      ...match.bowlingTeam.players,
-      ...allPlayers // Include all loaded players
-    ];
-    
-    // Remove duplicates by ID
-    const uniqueMatchPlayers = allMatchPlayers.filter((player, index, array) =>
-      array.findIndex(p => p.id === player.id) === index
-    );
-    
-    // Exclude current batsmen
-    const availableBatsmen = uniqueMatchPlayers.filter(p => 
+    return match.battingTeam.players.filter(p => 
       p.id !== match.currentStriker?.id && 
       p.id !== match.currentNonStriker?.id
     );
-    
-    console.log(`✅ AVAILABLE BATSMEN:`, availableBatsmen.map(p => p.name));
-    console.log(`🎯 TOTAL OPTIONS: ${availableBatsmen.length} batsmen available`);
-    
-    return availableBatsmen;
   };
 
   const handleAddPlayer = (player: Player) => {
@@ -851,10 +779,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
     
     console.log(`✅ PLAYER SELECTED: ${player.name} (${player.isGuest ? 'Guest' : player.isGroupMember ? 'Group Member' : 'Player'})`);
     
-    // ENHANCED: Add player to BOTH teams' available pools for maximum flexibility
-    // This ensures once a player is in the match, they can be selected for any role
-    
-    // Add to the specific team they're needed for immediately
+    // Immediately update the match and UI
     if (addPlayerType === 'batting') {
       if (!updatedMatch.battingTeam.players.find(p => p.id === player.id)) {
         updatedMatch.battingTeam.players.push(player);
@@ -865,12 +790,6 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
         updatedMatch.bowlingTeam.players.push(player);
         console.log(`🎳 Added ${player.name} to bowling team`);
       }
-    }
-    
-    // ALSO add to allPlayers list if not already there for future selections
-    if (!allPlayers.find(p => p.id === player.id)) {
-      setAllPlayers(prev => [...prev, player]);
-      console.log(`📋 Added ${player.name} to global player list for future selections`);
     }
     
     setMatch(updatedMatch);
@@ -1157,10 +1076,7 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           allowAddPlayer={true}
           groupId={currentGroup?.id}
           filterByGroup={isGroupMatch} // Filter by group for group matches
-          // REMOVED excludePlayerIds - getAvailableBowlers() already handles correct exclusions
-          recommendationRole="bowling"
-          match={match}
-          showRecommendations={true}
+          excludePlayerIds={match.currentBowler ? [match.currentBowler.id] : []}
         />
       )}
 
@@ -1178,9 +1094,6 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           allowAddPlayer={true}
           groupId={currentGroup?.id}
           filterByGroup={isGroupMatch} // Filter by group for group matches
-          recommendationRole="batting"
-          match={match}
-          showRecommendations={true}
         />
       )}
 
@@ -1204,9 +1117,6 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           allowAddPlayer={true}
           groupId={currentGroup?.id}
           filterByGroup={isGroupMatch} // Filter by group for group matches
-          recommendationRole={addPlayerType === 'batting' ? 'batting' : 'bowling'}
-          match={match}
-          showRecommendations={true}
         />
       )}
 

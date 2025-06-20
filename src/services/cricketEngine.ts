@@ -157,14 +157,9 @@ export class CricketEngine {
     });
 
     console.log(`✅ FINAL AVAILABLE BOWLERS FOR OVER ${nextOver}:`, availableBowlers.map(b => b.name));
-    console.log(`🎯 CRICKET RULE: Only excluding bowler from over ${previousOver} (${previousBowlerName})`);
-    console.log(`🎯 ALL OTHER BOWLERS CAN BOWL, INCLUDING THOSE WHO BOWLED EARLIER!`);
     
     if (availableBowlers.length === 0) {
       console.log(`🚨 WARNING: NO AVAILABLE BOWLERS FOR OVER ${nextOver}!`);
-      console.log(`🔧 This might happen if:`)
-      console.log(`   - Only 2 players in bowling team and both are batting`);
-      console.log(`   - Previous bowler was the only bowler available`);
     }
     
     return availableBowlers;

@@ -124,31 +124,19 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
       const currentGroup = authService.getCurrentGroup();
       const isGroupMatch = !match.isStandalone && currentGroup;
       
-      // ENHANCED: Get ALL players from match teams AND loaded players
-      const allMatchPlayers = [
-        ...match.battingTeam.players,
-        ...match.bowlingTeam.players,
-        ...allPlayers // Include all loaded players for comprehensive options
-      ];
-      
-      // Remove duplicates by ID
-      const uniquePlayers = allMatchPlayers.filter((player, index, array) =>
-        array.findIndex(p => p.id === player.id) === index
-      );
-      
-      console.log(`🎯 InningsSetup - All unique players available:`, uniquePlayers.map(p => p.name));
-      
       switch (type) {
         case 'striker':
         case 'nonStriker':
-          // For batsmen, exclude the other selected batsman and any selected bowler
-          let battingPlayers = uniquePlayers.filter(p => 
+          // For batsmen, exclude:
+          // 1. The other selected batsman
+          // 2. Any selected bowler
+          // 3. Players who are already in the bowling team
+          let battingPlayers = allPlayers.filter(p => 
             p.id !== striker?.id && 
             p.id !== nonStriker?.id &&
-            p.id !== bowler?.id
+            p.id !== bowler?.id &&
+            !match.bowlingTeam.players.some(bowler => bowler.id === p.id)
           );
-          
-          console.log(`🏏 Available batsmen for ${type}:`, battingPlayers.map(p => p.name));
           
           // For group matches, prioritize group members but allow others
           if (isGroupMatch) {
@@ -164,13 +152,14 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
           return battingPlayers;
           
         case 'bowler':
-          // For bowler, exclude selected batsmen
-          let bowlingPlayers = uniquePlayers.filter(p => 
+          // For bowler, exclude:
+          // 1. Selected batsmen
+          // 2. Players who are already in the batting team
+          let bowlingPlayers = allPlayers.filter(p => 
             p.id !== striker?.id && 
-            p.id !== nonStriker?.id
+            p.id !== nonStriker?.id &&
+            !match.battingTeam.players.some(batsman => batsman.id === p.id)
           );
-          
-          console.log(`🎳 Available bowlers:`, bowlingPlayers.map(p => p.name));
           
           // For group matches, prioritize group members but allow others
           if (isGroupMatch) {
@@ -186,7 +175,7 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
           return bowlingPlayers;
           
         default:
-          return uniquePlayers;
+          return allPlayers;
       }
     };
   }, [allPlayers, striker, nonStriker, bowler, match]);
@@ -457,9 +446,6 @@ export const InningsSetupModal: React.FC<InningsSetupModalProps> = ({
           allowAddPlayer={true}
           groupId={currentGroup?.id}
           filterByGroup={isGroupMatch} // Filter by group for group matches
-          recommendationRole={showPlayerSelector.type === 'striker' || showPlayerSelector.type === 'nonStriker' ? 'batting' : 'bowling'}
-          match={match}
-          showRecommendations={true}
         />
       )}
     </div>
