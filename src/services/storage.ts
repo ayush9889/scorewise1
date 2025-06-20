@@ -1,7 +1,8 @@
 import { Match, Player } from '../types/cricket';
 import { User, Group, Invitation } from '../types/auth';
-// Import autoSyncService but avoid circular dependency
+// Import sync services but avoid circular dependency
 let autoSyncService: any = null;
+let realTimeSyncService: any = null;
 
 const DB_NAME = 'CricketScorerDB';
 const DB_VERSION = 6; // Increment version to fix group indexing issues
@@ -12,7 +13,7 @@ class StorageService {
   private db: IDBDatabase | null = null;
   private backupTimer: NodeJS.Timeout | null = null;
 
-  // Initialize auto-sync service (lazy loading to avoid circular dependency)
+  // Initialize sync services (lazy loading to avoid circular dependency)
   private initAutoSync(): void {
     try {
       if (!autoSyncService) {
@@ -22,8 +23,16 @@ class StorageService {
           console.log('🔄 Auto-sync service integrated with storage');
         });
       }
+      
+      if (!realTimeSyncService) {
+        // Dynamically import real-time sync service
+        import('./realTimeSyncService').then(module => {
+          realTimeSyncService = module.realTimeSyncService;
+          console.log('📡 Real-time sync service integrated with storage');
+        });
+      }
     } catch (error) {
-      console.warn('⚠️ Auto-sync service not available:', error);
+      console.warn('⚠️ Sync services not available:', error);
     }
   }
 
@@ -104,6 +113,10 @@ class StorageService {
         // Auto-sync player to cloud
         if (autoSyncService) {
           autoSyncService.autoSyncPlayer(player);
+        }
+        // Push instant real-time update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('UPDATE', 'PLAYER', player);
         }
         resolve();
       };
@@ -247,6 +260,10 @@ class StorageService {
         if (autoSyncService) {
           autoSyncService.autoSyncMatch(match);
         }
+        // Push instant real-time update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('UPDATE', 'MATCH', match);
+        }
         resolve();
       };
     });
@@ -384,6 +401,10 @@ class StorageService {
         if (autoSyncService) {
           autoSyncService.autoSyncUser(user);
         }
+        // Push instant real-time update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('UPDATE', 'USER', user);
+        }
         resolve();
       };
     });
@@ -449,6 +470,10 @@ class StorageService {
         // Auto-sync group to cloud
         if (autoSyncService) {
           autoSyncService.autoSyncGroup(group);
+        }
+        // Push instant real-time update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('UPDATE', 'GROUP', group);
         }
         resolve();
       };
@@ -1408,6 +1433,10 @@ class StorageService {
         if (autoSyncService) {
           autoSyncService.autoSyncMatchDeletion(matchId);
         }
+        // Push instant real-time deletion update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('DELETE', 'MATCH', { id: matchId });
+        }
         resolve();
       };
     });
@@ -1430,6 +1459,10 @@ class StorageService {
         if (autoSyncService) {
           autoSyncService.autoSyncPlayerDeletion(playerId);
         }
+        // Push instant real-time deletion update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('DELETE', 'PLAYER', { id: playerId });
+        }
         resolve();
       };
     });
@@ -1451,6 +1484,10 @@ class StorageService {
         // Auto-sync group deletion to cloud
         if (autoSyncService) {
           autoSyncService.autoSyncGroupDeletion(groupId);
+        }
+        // Push instant real-time deletion update
+        if (realTimeSyncService) {
+          realTimeSyncService.pushInstantUpdate('DELETE', 'GROUP', { id: groupId });
         }
         resolve();
       };

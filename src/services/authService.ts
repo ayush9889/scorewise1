@@ -8,8 +8,9 @@ import { userCloudSyncService } from './userCloudSyncService';
 import { rigidGroupManager } from './rigidGroupManager';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../config/firebase';
-// Import autoSyncService but avoid circular dependency
+// Import sync services but avoid circular dependency
 let autoSyncService: any = null;
+let realTimeSyncService: any = null;
 
 class AuthService {
   private currentUser: User | null = null;
@@ -25,7 +26,7 @@ class AuthService {
     this.initAutoSync();
   }
 
-  // Initialize auto-sync service (lazy loading to avoid circular dependency)
+  // Initialize sync services (lazy loading to avoid circular dependency)
   private initAutoSync(): void {
     try {
       if (!autoSyncService) {
@@ -35,8 +36,16 @@ class AuthService {
           console.log('🔄 Auto-sync service integrated with auth service');
         });
       }
+      
+      if (!realTimeSyncService) {
+        // Dynamically import real-time sync service
+        import('./realTimeSyncService').then(module => {
+          realTimeSyncService = module.realTimeSyncService;
+          console.log('📡 Real-time sync service integrated with auth service');
+        });
+      }
     } catch (error) {
-      console.warn('⚠️ Auto-sync service not available:', error);
+      console.warn('⚠️ Sync services not available:', error);
     }
   }
 
@@ -1497,12 +1506,17 @@ class AuthService {
     // Use rigid group manager for stable group selection
     rigidGroupManager.setCurrentGroup(group, true);
     
+    // Set current group for real-time sync
+    if (realTimeSyncService) {
+      realTimeSyncService.setCurrentGroup(group.id);
+    }
+    
     // Also update the traditional storage for backward compatibility
     this.currentGroups = this.currentGroups.filter(g => g.id !== group.id);
     this.currentGroups.unshift(group);
     this.saveGroupsToStorage();
     
-    console.log('✅ Current group set with rigid persistence');
+    console.log('✅ Current group set with rigid persistence and real-time sync');
   }
 
   private saveGroupsToStorage(): void {

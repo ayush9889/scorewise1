@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { autoSyncService } from '../services/autoSyncService';
+import { realTimeSyncService } from '../services/realTimeSyncService';
 
 interface SyncStatus {
   isEnabled: boolean;
@@ -9,6 +10,14 @@ interface SyncStatus {
   totalOperations: number;
   syncProgress: number;
   errors: string[];
+}
+
+interface RealTimeStatus {
+  enabled: boolean;
+  listening: boolean;
+  listenersCount: number;
+  currentUser: string | null;
+  currentGroup: string | null;
 }
 
 const AutoSyncStatus: React.FC = () => {
@@ -22,18 +31,43 @@ const AutoSyncStatus: React.FC = () => {
     errors: []
   });
 
+  const [realTimeStatus, setRealTimeStatus] = useState<RealTimeStatus>({
+    enabled: true,
+    listening: false,
+    listenersCount: 0,
+    currentUser: null,
+    currentGroup: null
+  });
+
   const [isExpanded, setIsExpanded] = useState(false);
+  const [lastRealTimeUpdate, setLastRealTimeUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
     // Subscribe to sync status changes
-    const unsubscribe = autoSyncService.onSyncStatusChange((status) => {
+    const unsubscribeAutoSync = autoSyncService.onSyncStatusChange((status) => {
       setSyncStatus(status);
     });
 
-    // Get initial status
-    setSyncStatus(autoSyncService.getSyncStatus());
+    // Subscribe to real-time updates
+    const unsubscribeRealTime = realTimeSyncService.onRealTimeUpdate('ALL', (updateData) => {
+      setLastRealTimeUpdate(new Date());
+      console.log('📡 Real-time update received:', updateData);
+    });
 
-    return unsubscribe;
+    // Get initial statuses
+    setSyncStatus(autoSyncService.getSyncStatus());
+    setRealTimeStatus(realTimeSyncService.getConnectionStatus());
+
+    // Update real-time status every 5 seconds
+    const statusInterval = setInterval(() => {
+      setRealTimeStatus(realTimeSyncService.getConnectionStatus());
+    }, 5000);
+
+    return () => {
+      unsubscribeAutoSync();
+      unsubscribeRealTime();
+      clearInterval(statusInterval);
+    };
   }, []);
 
   const formatLastSync = (lastSync: Date | null): string => {
@@ -58,6 +92,7 @@ const AutoSyncStatus: React.FC = () => {
     if (!syncStatus.isOnline) return '📱';
     if (syncStatus.pendingOperations > 0) return '🔄';
     if (syncStatus.errors.length > 0) return '⚠️';
+    if (realTimeStatus.listening) return '📡';
     return '✅';
   };
 
@@ -66,6 +101,7 @@ const AutoSyncStatus: React.FC = () => {
     if (!syncStatus.isOnline) return 'Offline - queued for sync';
     if (syncStatus.pendingOperations > 0) return `Syncing ${syncStatus.pendingOperations} items...`;
     if (syncStatus.errors.length > 0) return 'Sync errors detected';
+    if (realTimeStatus.listening) return `Real-time sync active (${realTimeStatus.listenersCount} listeners)`;
     return 'All data synced';
   };
 
@@ -139,15 +175,32 @@ const AutoSyncStatus: React.FC = () => {
             </div>
           )}
 
-          {/* Status Details */}
+                     {/* Status Details */}
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-gray-500">Status:</span>
+              <span className="text-gray-500">Network:</span>
               <div className="flex items-center space-x-2">
                 <span className={syncStatus.isOnline ? 'text-green-500' : 'text-red-500'}>
                   {syncStatus.isOnline ? '🟢 Online' : '🔴 Offline'}
                 </span>
               </div>
+            </div>
+            
+            <div>
+              <span className="text-gray-500">Real-time:</span>
+              <span className={realTimeStatus.listening ? 'text-green-500' : 'text-gray-500'}>
+                {realTimeStatus.listening ? '📡 Live' : '⏸️ Inactive'}
+              </span>
+            </div>
+            
+            <div>
+              <span className="text-gray-500">Pending:</span>
+              <span className="font-medium">{syncStatus.pendingOperations} items</span>
+            </div>
+            
+            <div>
+              <span className="text-gray-500">Listeners:</span>
+              <span className="font-medium">{realTimeStatus.listenersCount}</span>
             </div>
             
             <div>
@@ -158,13 +211,10 @@ const AutoSyncStatus: React.FC = () => {
             </div>
             
             <div>
-              <span className="text-gray-500">Pending:</span>
-              <span className="font-medium">{syncStatus.pendingOperations} items</span>
-            </div>
-            
-            <div>
-              <span className="text-gray-500">Total synced:</span>
-              <span className="font-medium">{syncStatus.totalOperations}</span>
+              <span className="text-gray-500">Last update:</span>
+              <span className="font-medium">
+                {lastRealTimeUpdate ? formatLastSync(lastRealTimeUpdate) : 'Never'}
+              </span>
             </div>
           </div>
 
@@ -206,16 +256,18 @@ const AutoSyncStatus: React.FC = () => {
             </button>
           </div>
 
-          {/* Sync Info */}
+                     {/* Sync Info */}
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
             <div className="text-blue-800 font-medium text-sm mb-2">
-              🔄 Auto-Sync Information
+              📡 Real-Time Sync Information
             </div>
             <div className="text-blue-700 text-xs space-y-1">
-              <div>• Data automatically syncs to cloud every 30 seconds</div>
-              <div>• Works offline - changes queued until connection restored</div>
-              <div>• All groups, players, and matches are backed up automatically</div>
-              <div>• No manual export/import needed anymore!</div>
+              <div>• Changes sync instantly across all devices in real-time</div>
+              <div>• Live listeners automatically detect and apply updates</div>
+              <div>• Conflict resolution ensures data consistency</div>
+              <div>• Background backup every 30 seconds for safety</div>
+              <div>• Works offline - updates queue for later sync</div>
+              <div>• Device ID: {realTimeStatus.currentUser ? realTimeSyncService.getDeviceId().slice(-8) : 'Not authenticated'}</div>
             </div>
           </div>
         </div>
