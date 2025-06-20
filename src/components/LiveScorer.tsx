@@ -232,10 +232,10 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
           
           // Get all players who participated in the match (from both teams)
           const allMatchPlayers = [
-            ...match.team1.players,
-            ...match.team2.players,
-            ...match.battingTeam.players,
-            ...match.bowlingTeam.players
+            ...(match.team1?.players || []),
+            ...(match.team2?.players || []),
+            ...(match.battingTeam?.players || []),
+            ...(match.bowlingTeam?.players || [])
           ];
           
           // Remove duplicates based on player ID
@@ -781,12 +781,12 @@ export const LiveScorer: React.FC<LiveScorerProps> = ({
     
     // Immediately update the match and UI
     if (addPlayerType === 'batting') {
-      if (!updatedMatch.battingTeam.players.find(p => p.id === player.id)) {
+      if (updatedMatch.battingTeam?.players && !updatedMatch.battingTeam.players.find(p => p.id === player.id)) {
         updatedMatch.battingTeam.players.push(player);
         console.log(`🏏 Added ${player.name} to batting team`);
       }
     } else {
-      if (!updatedMatch.bowlingTeam.players.find(p => p.id === player.id)) {
+      if (updatedMatch.bowlingTeam?.players && !updatedMatch.bowlingTeam.players.find(p => p.id === player.id)) {
         updatedMatch.bowlingTeam.players.push(player);
         console.log(`🎳 Added ${player.name} to bowling team`);
       }

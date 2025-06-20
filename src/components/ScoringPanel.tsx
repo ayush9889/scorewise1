@@ -176,12 +176,12 @@ export const ScoringPanel: React.FC<ScoringPanelProps> = ({
     
     switch (showPlayerSelector.type) {
       case 'fielder':
-        return match.bowlingTeam.players || [];
+        return match.bowlingTeam?.players || [];
       case 'newBatsman':
-        return match.battingTeam.players.filter(p => 
+        return (match.battingTeam?.players || []).filter(p => 
           p.id !== match.currentStriker?.id && 
           p.id !== match.currentNonStriker?.id
-        ) || [];
+        );
       default:
         return [];
     }

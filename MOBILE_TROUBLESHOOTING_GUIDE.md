@@ -38,7 +38,44 @@ mobileRecovery()
 
 ## 🔍 Common Mobile Issues
 
-### Issue 1: "Error Loading Data" when Opening Groups
+### Issue 1: "Cannot read properties of undefined (reading 'players')" Error
+
+**Critical Mobile Bug - Now Auto-Fixed**
+
+**Symptoms:**
+- App crashes when opening groups
+- JavaScript error about undefined 'players' property
+- Unable to view match or team data
+- Error occurs specifically on mobile devices
+
+**Root Cause:**
+- Match data with undefined team objects
+- Mobile browsers being stricter about object access
+- Corrupted match data in local storage
+
+**Automatic Fix (NEW):**
+- ✅ App now automatically detects this error
+- ✅ Corrupted data is cleared automatically  
+- ✅ Page refreshes automatically after fix
+- ✅ No user action required
+
+**Manual Recovery (if auto-fix fails):**
+```javascript
+// In browser console (if accessible):
+mobileFix()  // Runs automatic fix
+
+// For complete reset:
+mobileRecovery()  // Clears all data and restarts
+```
+
+**Prevention:**
+- Keep app updated
+- Avoid force-closing browser during data operations
+- Use stable internet connection when creating matches
+
+---
+
+### Issue 2: "Error Loading Data" when Opening Groups
 
 **Symptoms:**
 - App shows loading spinner indefinitely

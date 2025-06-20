@@ -115,15 +115,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ onBack, onResumeMatch }) =
       
       // Filter matches by group - only show matches where players are from this group
       const groupMatches = storedMatches.filter(match => {
+        // Add null checks for team objects to prevent mobile errors
         const allMatchPlayers = [
-          ...match.team1.players,
-          ...match.team2.players,
+          ...(match.team1?.players || []),
+          ...(match.team2?.players || []),
           ...(match.battingTeam?.players || []),
           ...(match.bowlingTeam?.players || [])
         ];
         
         return allMatchPlayers.some(player => 
-          player.isGroupMember && 
+          player && player.isGroupMember && 
           player.groupIds?.includes(group.id)
         );
       });

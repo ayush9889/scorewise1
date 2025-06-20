@@ -261,6 +261,37 @@ class StorageService {
     }
   }
 
+  // Mobile-safe utility to get all match players without undefined errors
+  private getSafeMatchPlayers(match: Match): Player[] {
+    const players: Player[] = [];
+    
+    try {
+      // Safely extract players from all team sources
+      if (match.team1?.players) {
+        players.push(...match.team1.players);
+      }
+      if (match.team2?.players) {
+        players.push(...match.team2.players);
+      }
+      if (match.battingTeam?.players) {
+        players.push(...match.battingTeam.players);
+      }
+      if (match.bowlingTeam?.players) {
+        players.push(...match.bowlingTeam.players);
+      }
+      
+      // Remove duplicates and null values
+      const uniquePlayers = players.filter((player, index, self) => 
+        player && player.id && index === self.findIndex(p => p && p.id === player.id)
+      );
+      
+      return uniquePlayers;
+    } catch (error) {
+      console.warn('⚠️ Mobile error extracting match players:', error);
+      return [];
+    }
+  }
+
   // Enhanced operation wrapper with mobile-specific error handling
   private async withMobileErrorHandling<T>(
     operation: () => Promise<T>,
@@ -513,16 +544,11 @@ class StorageService {
     return this.withMobileErrorHandling(async () => {
       const allMatches = await this.getAllMatches();
       const groupMatches = allMatches.filter(match => {
-        // Check if any players in the match belong to this group
-        const allMatchPlayers = [
-          ...match.team1.players,
-          ...match.team2.players,
-          ...(match.battingTeam?.players || []),
-          ...(match.bowlingTeam?.players || [])
-        ];
+        // Use mobile-safe player extraction to prevent undefined errors
+        const allMatchPlayers = this.getSafeMatchPlayers(match);
         
         return allMatchPlayers.some(player => 
-          player.isGroupMember && 
+          player && player.isGroupMember && 
           player.groupIds?.includes(groupId)
         );
       });

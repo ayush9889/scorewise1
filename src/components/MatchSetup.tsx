@@ -52,8 +52,8 @@ export const MatchSetup: React.FC<MatchSetupProps> = ({ onMatchStart, isStandalo
           // Filter matches by group
           const groupMatches = matches.filter(match => {
             const allMatchPlayers = [
-              ...match.team1.players,
-              ...match.team2.players,
+              ...(match.team1?.players || []),
+              ...(match.team2?.players || []),
               ...(match.battingTeam?.players || []),
               ...(match.bowlingTeam?.players || [])
             ];

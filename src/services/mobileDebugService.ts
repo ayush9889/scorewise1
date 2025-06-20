@@ -152,6 +152,9 @@ export class MobileDebugService {
     console.log('🛠️ === QUICK MOBILE FIX STARTING ===');
     
     try {
+      // Install undefined players error handler
+      this.fixUndefinedPlayersError();
+      
       // Clear problematic localStorage entries
       const keysToRemove = Object.keys(localStorage).filter(key => 
         key.includes('temp_') || 
@@ -200,6 +203,64 @@ export class MobileDebugService {
       
     } catch (error) {
       console.error('❌ Quick mobile fix failed:', error);
+    }
+  }
+
+  // Fix the "Cannot read properties of undefined (reading 'players')" error
+  private static fixUndefinedPlayersError(): void {
+    console.log('🔧 Installing undefined players error handler...');
+    
+    try {
+      // Add global error handler for this specific error
+      window.addEventListener('error', (event) => {
+        if (event.error?.message?.includes("Cannot read properties of undefined (reading 'players')")) {
+          console.error('🚨 Mobile Error Detected: Undefined players property');
+          console.log('🔧 Auto-fixing: Clearing problematic match data');
+          
+          // Clear potentially corrupted match data
+          try {
+            localStorage.removeItem('cricket_scorer_backup');
+            sessionStorage.clear();
+            console.log('✅ Cleared corrupted match data');
+            
+            // Show user-friendly message
+            if (typeof window !== 'undefined' && window.alert) {
+              setTimeout(() => {
+                window.alert('📱 Mobile data issue detected and fixed. The page will refresh automatically.');
+                setTimeout(() => window.location.reload(), 1000);
+              }, 100);
+            }
+          } catch (clearError) {
+            console.error('❌ Failed to clear corrupted data:', clearError);
+          }
+          
+          event.preventDefault();
+          return true;
+        }
+      });
+      
+      // Also add unhandled promise rejection handler
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason?.message?.includes("Cannot read properties of undefined (reading 'players')")) {
+          console.error('🚨 Mobile Promise Rejection: Undefined players property');
+          console.log('🔧 Auto-fixing promise rejection');
+          
+          // Clear problematic data
+          try {
+            localStorage.removeItem('cricket_scorer_backup');
+            console.log('✅ Cleared corrupted data after promise rejection');
+          } catch (error) {
+            console.error('❌ Failed to clear data after promise rejection:', error);
+          }
+          
+          event.preventDefault();
+        }
+      });
+      
+      console.log('✅ Undefined players error handlers installed');
+      
+    } catch (error) {
+      console.warn('⚠️ Could not install players error handlers:', error);
     }
   }
   

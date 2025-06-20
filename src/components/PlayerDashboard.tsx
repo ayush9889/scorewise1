@@ -30,8 +30,8 @@ export const PlayerDashboard: React.FC<PlayerDashboardProps> = ({
     try {
       const allMatches = await storageService.getAllMatches();
       const playerMatches = allMatches.filter(match => 
-        match.team1.players.some(p => p.id === player.id) ||
-        match.team2.players.some(p => p.id === player.id)
+        (match.team1?.players?.some(p => p.id === player.id)) ||
+        (match.team2?.players?.some(p => p.id === player.id))
       );
       
       setMatches(playerMatches);
